@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ruleta de Recomendaciones de Anime</title>
+    <meta
+      name="description"
+      content="Aplicación web interactiva en modo oscuro para descubrir tu próximo anime mediante una ruleta animada con enlaces directos a MyAnimeList."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a href="#inicio" class="brand">AniRuleta</a>
+
+        <nav class="nav-links" aria-label="Navegación principal">
+          <a href="#inicio">Ruleta</a>
+          <a href="#filtros">Filtros</a>
+          <a href="#resultado">Resultado</a>
+          <a href="#historial">Historial (<span id="nav-watched-count">0</span>)</a>
+        </nav>
+
+        <button type="button" id="header-spin-btn" class="btn btn-primary btn-sm">
+          Girar ruleta
+        </button>
+      </div>
+    </header>
+
+    <main id="inicio" class="container main-content">
+      <section class="hero-intro">
+        <h1>Ruleta de Recomendaciones de Anime</h1>
+        <p class="hero-subtitle">
+          Ajusta el género y la puntuación mínima, gira la ruleta y descubre tu próxima serie vinculada directamente a MyAnimeList.
+        </p>
+      </section>
+
+      <section class="workspace-grid" aria-label="Configuración y resultado de la ruleta">
+        <aside id="filtros" class="panel controls-panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Filtros de búsqueda</h2>
+            <span class="muted-counter">Excluidos: <strong id="excluded-count">0</strong></span>
+          </div>
+
+          <div class="filter-group">
+            <span class="filter-label">Género principal</span>
+            <div id="genre-buttons" class="genre-grid" role="group" aria-label="Seleccionar género">
+              <button type="button" class="genre-btn is-active" data-genre="">Todos</button>
+              <button type="button" class="genre-btn" data-genre="Action">Acción</button>
+              <button type="button" class="genre-btn" data-genre="Adventure">Aventura</button>
+              <button type="button" class="genre-btn" data-genre="Comedy">Comedia</button>
+              <button type="button" class="genre-btn" data-genre="Fantasy">Fantasía</button>
+              <button type="button" class="genre-btn" data-genre="Mystery">Misterio</button>
+              <button type="button" class="genre-btn" data-genre="Slice of Life">Slice of Life</button>
+              <button type="button" class="genre-btn" data-genre="Sci-Fi">Ciencia Ficción</button>
+              <button type="button" class="genre-btn" data-genre="Romance">Romance</button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label for="min-score-select" class="filter-label">Puntuación mínima</label>
+            <select id="min-score-select" class="select-input">
+              <option value="">Cualquier puntuación</option>
+              <option value="7">+7.0 Buena</option>
+              <option value="7.5" selected>+7.5 Muy buena</option>
+              <option value="8">+8.0 Excelente</option>
+              <option value="8.5">+8.5 Obra maestra</option>
+            </select>
+          </div>
+
+          <div class="wheel-stage">
+            <div class="wheel-pointer" aria-hidden="true">
+              <span class="pointer-dot"></span>
+              <svg width="24" height="18" viewBox="0 0 24 18">
+                <path d="M12 18L2 0H22L12 18Z" fill="#FF4D6D" stroke="#090B10" stroke-width="2" />
+              </svg>
+            </div>
+
+            <div class="wheel-frame">
+              <svg
+                id="roulette-svg"
+                class="roulette-wheel"
+                viewBox="0 0 320 320"
+                role="img"
+                aria-label="Ruleta interactiva de anime"
+              ></svg>
+
+              <button
+                type="button"
+                id="wheel-hub-btn"
+                class="wheel-hub"
+                aria-label="Girar ruleta"
+              >
+                <span class="wheel-hub-icon" aria-hidden="true">◎</span>
+                <span id="wheel-hub-text" class="wheel-hub-text">Girar</span>
+              </button>
+            </div>
+
+            <button type="button" id="main-spin-btn" class="btn btn-primary btn-full">
+              Girar / Recomendar Anime
+            </button>
+          </div>
+        </aside>
+
+        <section id="resultado" class="result-stage" aria-live="polite">
+          <div id="state-idle" class="panel state-box">
+            <div class="state-icon" aria-hidden="true">✦</div>
+            <h2>Listo para tu próxima serie</h2>
+            <p>
+              Selecciona un género y una puntuación mínima en el panel izquierdo y pulsa el botón para girar la ruleta.
+            </p>
+            <button type="button" id="empty-spin-btn" class="btn btn-primary">
+              Girar por primera vez
+            </button>
+          </div>
+
+          <div id="state-loading" class="panel state-box is-hidden">
+            <div class="spinner" aria-hidden="true"></div>
+            <h2>Consultando catálogo de anime…</h2>
+            <p id="loading-detail">Buscando títulos en el catálogo…</p>
+          </div>
+
+          <div id="state-error" class="panel state-box state-error is-hidden" role="alert">
+            <div class="state-icon state-icon-error" aria-hidden="true">!</div>
+            <h2>No se pudo completar la recomendación</h2>
+            <p id="error-message">Ocurrió un error al consultar la API.</p>
+            <div class="state-actions">
+              <button type="button" id="retry-spin-btn" class="btn btn-primary">
+                Reintentar giro
+              </button>
+              <button type="button" id="clear-filters-btn" class="btn btn-secondary">
+                Limpiar filtros
+              </button>
+            </div>
+          </div>
+
+          <article id="anime-card" class="panel anime-card is-hidden">
+            <div class="anime-poster-col">
+              <img
+                id="anime-poster"
+                src=""
+                alt=""
+                referrerpolicy="no-referrer"
+              />
+              <div id="poster-fallback" class="poster-fallback is-hidden">
+                <span id="poster-fallback-title">Sin portada</span>
+              </div>
+            </div>
+
+            <div class="anime-info-col">
+              <div class="anime-header">
+                <div class="anime-meta-line">
+                  <span id="anime-score" class="meta-score">★ 0.00</span>
+                  <span aria-hidden="true">·</span>
+                  <span id="anime-episodes">0 episodios</span>
+                  <span aria-hidden="true">·</span>
+                  <span id="anime-status">Finalizado</span>
+                  <span id="anime-year-sep" aria-hidden="true">·</span>
+                  <span id="anime-year"></span>
+                </div>
+
+                <h2 id="anime-title" class="anime-title">Título del Anime</h2>
+                <p id="anime-subtitles" class="anime-subtitles"></p>
+              </div>
+
+              <div id="anime-genres" class="anime-genres" aria-label="Géneros"></div>
+
+              <div class="anime-synopsis-wrap">
+                <p id="anime-synopsis" class="anime-synopsis"></p>
+                <button
+                  type="button"
+                  id="toggle-synopsis-btn"
+                  class="text-link-btn is-hidden"
+                >
+                  Leer sinopsis completa
+                </button>
+              </div>
+
+              <div class="anime-actions">
+                <div class="anime-actions-left">
+                  <button type="button" id="mark-watched-btn" class="btn btn-secondary">
+                    Ya lo vi
+                  </button>
+                  <button type="button" id="next-spin-btn" class="btn btn-primary">
+                    Otro anime
+                  </button>
+                </div>
+
+                <a
+                  id="mal-link"
+                  href="#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="external-link"
+                >
+                  Ver ficha en MyAnimeList ↗
+                </a>
+              </div>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="historial" class="history-section">
+        <div class="history-header">
+          <div>
+            <h2>Historial de animes vistos</h2>
+            <p id="history-summary" class="history-summary">
+              Todavía no marcaste ningún título como visto.
+            </p>
+          </div>
+
+          <div id="reset-controls" class="reset-controls is-hidden">
+            <button type="button" id="cancel-reset-btn" class="btn btn-secondary btn-sm is-hidden">
+              Cancelar
+            </button>
+            <button type="button" id="reset-history-btn" class="btn btn-secondary btn-sm">
+              Reiniciar historial
+            </button>
+          </div>
+        </div>
+
+        <div id="watched-grid" class="watched-grid"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <span>Ruleta de Recomendaciones de Anime</span>
+        <span>Catálogo en vivo con enlaces directos a MyAnimeList</span>
+      </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>
