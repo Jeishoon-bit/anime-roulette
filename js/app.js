@@ -2,8 +2,12 @@
   const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
   const KITSU_API_URL = 'https://kitsu.io/api/edge/anime';
   const STORAGE_KEY = 'anime_roulette_watched_v2';
-  const SPIN_MIN_DURATION_MS = 1850;
+  const DURACION_GIRO_NORMAL_MS = 5000;
+  const DURACION_GIRO_REDUCIDO_MS = 800;
+  const VUELTAS_NORMALES_DEG = 2160; // 6 vueltas completas
+  const VUELTAS_REDUCIDAS_DEG = 360; // 1 vuelta completa
   const REQUEST_TIMEOUT_MS = 8000;
+  const TONOS_SAKURA = ['#f8c8d8', '#f4b8cc', '#fad6e3', '#f2afc5'];
 
   const WHEEL_SEGMENTS = [
     { label: 'Acción', color: '#FF4D6D', genre: 'Action', kitsuSlug: 'action' },
@@ -64,6 +68,9 @@
     genre: '',
     minScore: '7.5',
     rotation: 0,
+    animationFrameId: null,
+    revealTimers: [],
+    activePetals: [],
     isSpinning: false,
     currentAnime: null,
     lastShownId: null,
@@ -74,6 +81,7 @@
 
   // DOM References
   const rouletteSvg = document.getElementById('roulette-svg');
+  const pointerNeedle = document.getElementById('wheel-pointer-needle');
   const genreButtonsContainer = document.getElementById('genre-buttons');
   const minScoreSelect = document.getElementById('min-score-select');
   const headerSpinBtn = document.getElementById('header-spin-btn');
@@ -192,7 +200,7 @@
       const fillOpacity = isHighlighted ? '0.88' : '0.24';
 
       parts.push(
-        `<path d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#090B10" stroke-width="2.5" />`
+        `<path class="wheel-segment" data-segment-index="${index}" d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#090B10" stroke-width="2.5" />`
       );
       parts.push(
         `<path d="${describeArcWedge(160, 160, 146, 138, start, end)}" fill="${seg.color}" fill-opacity="0.92" stroke="#090B10" stroke-width="1.5" />`
@@ -202,6 +210,7 @@
       );
     });
 
+    parts.push('<g id="winner-glow-layer" class="winner-glow-overlay" aria-hidden="true"></g>');
     parts.push('<circle cx="160" cy="160" r="48" fill="#121620" stroke="#090B10" stroke-width="3" />');
     rouletteSvg.innerHTML = parts.join('');
   }
@@ -238,13 +247,21 @@
 
   function setSpinningUI(spinning) {
     state.isSpinning = spinning;
-    [headerSpinBtn, mainSpinBtn, wheelHubBtn, minScoreSelect].forEach((el) => {
+    [
+      headerSpinBtn,
+      mainSpinBtn,
+      wheelHubBtn,
+      emptySpinBtn,
+      retrySpinBtn,
+      nextSpinBtn,
+      minScoreSelect,
+    ].forEach((el) => {
       el.disabled = spinning;
     });
     genreButtonsContainer.querySelectorAll('button').forEach((btn) => {
       btn.disabled = spinning;
     });
-    mainSpinBtn.textContent = spinning ? 'Buscando anime…' : 'Girar / Recomendar Anime';
+    mainSpinBtn.textContent = spinning ? 'Girando ruleta…' : 'Girar / Recomendar Anime';
     headerSpinBtn.textContent = spinning ? 'Girando…' : 'Girar ruleta';
     wheelHubText.textContent = spinning ? 'Girando' : 'Girar';
   }
@@ -545,6 +562,9 @@
       : 'Ver ficha completa ↗';
 
     updateMarkWatchedButton();
+    // Prepara la ficha oculta antes de iniciar la línea de tiempo de revelación
+    animeCard.classList.remove('visible');
+    animeCard.classList.add('oculta');
     showStage('result');
   }
 
@@ -626,9 +646,291 @@
     });
   }
 
+  // Curva de desaceleración realista (easeOutQuart)
+  function easeOutQuart(t) {
+    return 1 - Math.pow(1 - t, 4);
+  }
+
+  // Determina el índice del segmento ganador según el filtro o los géneros del anime elegido
+  function obtenerIndiceGanador(anime) {
+    if (state.genre) {
+      const idxFiltro = WHEEL_SEGMENTS.findIndex((seg) => seg.genre === state.genre);
+      if (idxFiltro !== -1) return idxFiltro;
+    }
+
+    if (anime && Array.isArray(anime.genres)) {
+      const idxAnime = WHEEL_SEGMENTS.findIndex(
+        (seg) =>
+          seg.genre &&
+          anime.genres.some((g) => String(g).toLowerCase() === seg.genre.toLowerCase())
+      );
+      if (idxAnime !== -1) return idxAnime;
+    }
+
+    return WHEEL_SEGMENTS.length - 1; // Segmento "Sorpresa"
+  }
+
+  // Calcula el ángulo final exacto para alinear el segmento ganador con el puntero superior
+  function calcularAnguloFinal(indiceGanador, vueltasBaseDeg) {
+    const anguloSegmento = 360 / WHEEL_SEGMENTS.length;
+    const centroSegmento = indiceGanador * anguloSegmento + anguloSegmento / 2;
+    const restoObjetivo = (360 - (centroSegmento % 360)) % 360;
+    const actualNormalizado = ((state.rotation % 360) + 360) % 360;
+    const offsetHastaGanador = (restoObjetivo - actualNormalizado + 360) % 360;
+
+    return state.rotation + vueltasBaseDeg + offsetHastaGanador;
+  }
+
+  // Dispara el latido visual del puntero con intensidad proporcional a la velocidad
+  function dispararTick(gradosRecorridos, deltaMs) {
+    if (!pointerNeedle) return;
+
+    // Convierte la velocidad instantánea (°/ms) a un rango entre -6deg (lento) y -16deg (rápido)
+    const velocidadPorMs = gradosRecorridos / Math.max(deltaMs, 1);
+    const intensidad = Math.min(Math.max(velocidadPorMs / 1.5, 0), 1);
+    const anguloTick = -(6 + 10 * intensidad);
+
+    pointerNeedle.style.setProperty('--tick-angle', `${anguloTick.toFixed(2)}deg`);
+    pointerNeedle.classList.remove('is-ticking');
+    // Fuerza un reflow para reiniciar la animación CSS de 90ms en cada cruce
+    void pointerNeedle.offsetWidth;
+    pointerNeedle.classList.add('is-ticking');
+  }
+
+  // Anima la rotación del SVG con requestAnimationFrame y desaceleración easeOutQuart
+  function animarRuleta(
+    elemento,
+    anguloInicial,
+    anguloFinal,
+    duracion,
+    permitirEfectosVisuales,
+    alFinalizar
+  ) {
+    if (state.animationFrameId !== null) {
+      window.cancelAnimationFrame(state.animationFrameId);
+      state.animationFrameId = null;
+    }
+
+    elemento.style.filter = '';
+
+    const tamanoSegmento = 360 / WHEEL_SEGMENTS.length;
+    let ultimoSegmento = Math.floor(anguloInicial / tamanoSegmento);
+    let anguloAnterior = anguloInicial;
+    let tiempoInicio = null;
+    let ultimoTimestamp = null;
+    let ultimoBlur = 0;
+
+    function cuadro(timestamp) {
+      if (tiempoInicio === null) {
+        tiempoInicio = timestamp;
+        ultimoTimestamp = timestamp;
+      }
+
+      const deltaMs = Math.max(timestamp - ultimoTimestamp, 1);
+      const progreso = Math.min((timestamp - tiempoInicio) / duracion, 1);
+      const factorSuavizado = easeOutQuart(progreso);
+      const anguloActual = anguloInicial + (anguloFinal - anguloInicial) * factorSuavizado;
+      const velocidad = Math.abs(anguloActual - anguloAnterior); // grados recorridos en este frame
+
+      elemento.style.transform = `rotate(${anguloActual}deg)`;
+
+      // Motion blur continuo proporcional a la velocidad (versión continua activa; corta < 0.25px en el último tercio para evitar repaints y mantener nitidez al frenar)
+      if (permitirEfectosVisuales && progreso < 1) {
+        const blurBruto = Math.min(velocidad * (16.67 / deltaMs) * 0.1, 3);
+        const blurAplicado = blurBruto >= 0.25 ? Number(blurBruto.toFixed(1)) : 0;
+
+        if (blurAplicado !== ultimoBlur) {
+          elemento.style.filter = blurAplicado > 0 ? `blur(${blurAplicado}px)` : '';
+          ultimoBlur = blurAplicado;
+        }
+      }
+
+      // Detecta el cruce de cada segmento para disparar el tick del puntero
+      const segmentoActual = Math.floor(anguloActual / tamanoSegmento);
+      if (permitirEfectosVisuales && segmentoActual !== ultimoSegmento) {
+        dispararTick(velocidad, deltaMs);
+        ultimoSegmento = segmentoActual;
+      }
+
+      anguloAnterior = anguloActual;
+      ultimoTimestamp = timestamp;
+
+      if (progreso < 1) {
+        state.animationFrameId = window.requestAnimationFrame(cuadro);
+      } else {
+        // Fija exactamente el ángulo ganador y limpia el filter explícitamente al terminar
+        elemento.style.transform = `rotate(${anguloFinal}deg)`;
+        elemento.style.filter = '';
+        state.rotation = anguloFinal;
+        state.animationFrameId = null;
+        alFinalizar();
+      }
+    }
+
+    state.animationFrameId = window.requestAnimationFrame(cuadro);
+  }
+
+  // Elimina de inmediato cualquier pétalo pendiente de una revelación anterior
+  function limpiarPetalos() {
+    state.activePetals.forEach((petalo) => {
+      window.clearTimeout(petalo.timerId);
+      petalo.el.remove();
+    });
+    state.activePetals = [];
+  }
+
+  // Genera entre 8 y 12 pétalos de sakura al finalizar la secuencia de revelación
+  function lanzarPetalosSakura() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    limpiarPetalos();
+
+    const cantidad = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < cantidad; i++) {
+      const petaloEl = document.createElement('div');
+      petaloEl.className = 'sakura-petalo';
+      petaloEl.setAttribute('aria-hidden', 'true');
+
+      const ancho = 8 + Math.random() * 6;
+      const alto = 8 + Math.random() * 6;
+      const leftPct = 5 + Math.random() * 90;
+      const duracionS = 2 + Math.random() * 2;
+      const retrasoMs = Math.round(Math.random() * 600);
+      const opacidad = 0.6 + Math.random() * 0.3;
+      const color = TONOS_SAKURA[Math.floor(Math.random() * TONOS_SAKURA.length)];
+
+      petaloEl.style.width = `${ancho.toFixed(1)}px`;
+      petaloEl.style.height = `${alto.toFixed(1)}px`;
+      petaloEl.style.left = `${leftPct.toFixed(2)}%`;
+      petaloEl.style.background = color;
+      petaloEl.style.setProperty('--petalo-opacity', opacidad.toFixed(2));
+      petaloEl.style.animationDuration = `${duracionS.toFixed(2)}s`;
+      petaloEl.style.animationDelay = `${retrasoMs}ms`;
+
+      const registro = { el: petaloEl, timerId: 0 };
+
+      function eliminarPetalo() {
+        window.clearTimeout(registro.timerId);
+        petaloEl.remove();
+        state.activePetals = state.activePetals.filter((item) => item !== registro);
+      }
+
+      petaloEl.addEventListener('animationend', eliminarPetalo, { once: true });
+      registro.timerId = window.setTimeout(
+        eliminarPetalo,
+        Math.round(duracionS * 1000) + retrasoMs + 200
+      );
+
+      state.activePetals.push(registro);
+      document.body.appendChild(petaloEl);
+    }
+  }
+
+  // Cancela cualquier timer pendiente de una secuencia de revelación anterior
+  function cancelarSecuenciaRevelacion() {
+    state.revealTimers.forEach((timerId) => window.clearTimeout(timerId));
+    state.revealTimers = [];
+    rouletteSvg.querySelectorAll('.segmento-ganador').forEach((el) => {
+      el.classList.remove('segmento-ganador');
+    });
+    const glowLayer = document.getElementById('winner-glow-layer');
+    if (glowLayer) {
+      glowLayer.classList.remove('is-active');
+      glowLayer.innerHTML = '';
+    }
+  }
+
+  // Construye el contenido SVG de la capa superpuesta del brillo ganador
+  function renderWinnerGlowLayer(indiceGanador) {
+    const glowLayer = document.getElementById('winner-glow-layer');
+    const seg = WHEEL_SEGMENTS[indiceGanador];
+    if (!glowLayer || !seg) return;
+
+    const segmentAngle = 360 / WHEEL_SEGMENTS.length;
+    const start = indiceGanador * segmentAngle;
+    const end = start + segmentAngle;
+    const mid = start + segmentAngle / 2;
+    const pos = polarToCartesian(160, 160, 102, mid);
+    const wedgePath = describeArcWedge(160, 160, 146, 48, start, end);
+
+    glowLayer.innerHTML = [
+      `<path d="${wedgePath}" fill="none" stroke="rgba(255, 215, 130, 0.45)" stroke-width="7" stroke-linejoin="round" />`,
+      `<path d="${wedgePath}" fill="#FFD782" fill-opacity="0.28" stroke="#FFE699" stroke-width="2.75" stroke-linejoin="round" />`,
+      `<text x="${pos.x}" y="${pos.y}" fill="#FFFFFF" font-size="11" font-weight="700" font-family="Outfit, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`,
+    ].join('');
+  }
+
+  // Orquesta la secuencia coreografiada tras detenerse la ruleta (0ms -> 400ms -> 800ms -> 1400ms)
+  function ejecutarSecuenciaRevelacion(indiceGanador, prefiereMovimientoReducido) {
+    cancelarSecuenciaRevelacion();
+
+    if (prefiereMovimientoReducido) {
+      // t+0ms: Sin brillo del segmento; ficha lista en .oculta (solo fade de 200ms)
+      const timerFade = window.setTimeout(() => {
+        animeCard.classList.remove('oculta');
+        animeCard.classList.add('visible');
+      }, 20);
+
+      // t+240ms (<= 300ms): Fin de secuencia reducida y reactivación de botones
+      const timerFin = window.setTimeout(() => {
+        state.revealTimers = [];
+        setSpinningUI(false);
+      }, 240);
+
+      state.revealTimers.push(timerFade, timerFin);
+      return;
+    }
+
+    const segmentoPath = rouletteSvg.querySelector(
+      `path.wheel-segment[data-segment-index="${indiceGanador}"]`
+    );
+    const glowLayer = document.getElementById('winner-glow-layer');
+    renderWinnerGlowLayer(indiceGanador);
+
+    // t+400ms: El segmento ganador resalta con un brillo dorado suave
+    const timerBrillo = window.setTimeout(() => {
+      if (segmentoPath) {
+        segmentoPath.classList.add('segmento-ganador');
+      }
+      if (glowLayer) {
+        glowLayer.classList.add('is-active');
+      }
+    }, 400);
+
+    // t+800ms: La ficha del anime se desliza desde abajo con fade y ligero scale
+    const timerFicha = window.setTimeout(() => {
+      animeCard.classList.remove('oculta');
+      animeCard.classList.add('visible');
+    }, 800);
+
+    // t+1400ms: Fin de la secuencia; inicia el desvanecimiento del brillo, se reactiva el botón y caen los pétalos
+    const timerFin = window.setTimeout(() => {
+      if (segmentoPath) {
+        segmentoPath.classList.remove('segmento-ganador');
+      }
+      if (glowLayer) {
+        glowLayer.classList.remove('is-active');
+      }
+      setSpinningUI(false);
+      lanzarPetalosSakura();
+    }, 1400);
+
+    // t+1820ms: Limpia el contenido de la capa al completar el fade-out
+    const timerLimpieza = window.setTimeout(() => {
+      if (glowLayer) {
+        glowLayer.innerHTML = '';
+      }
+      state.revealTimers = [];
+    }, 1820);
+
+    state.revealTimers.push(timerBrillo, timerFicha, timerFin, timerLimpieza);
+  }
+
   async function handleSpin() {
     if (state.isSpinning) return;
 
+    limpiarPetalos();
+    cancelarSecuenciaRevelacion();
     state.confirmReset = false;
     updateResetUI();
     setSpinningUI(true);
@@ -640,33 +942,48 @@
       state.minScore ? ` · puntuación +${state.minScore}` : ''
     }`;
 
-    const extraTurns = 360 * (4 + Math.floor(Math.random() * 3));
-    const randomOffset = Math.floor(Math.random() * 360);
-    state.rotation += extraTurns + randomOffset;
-    rouletteSvg.style.transform = `rotate(${state.rotation}deg)`;
-
-    const startedAt = Date.now();
-
     try {
+      // Calcula primero el anime elegido y luego anima la ruleta hasta su segmento ganador
       const selected = await pickRandomAnime();
-      const elapsed = Date.now() - startedAt;
-      const waitMs = Math.max(0, SPIN_MIN_DURATION_MS - elapsed);
+      const prefiereMovimientoReducido = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
 
-      setTimeout(() => {
-        renderAnimeCard(selected);
-        setSpinningUI(false);
-      }, waitMs);
+      const duracion = prefiereMovimientoReducido
+        ? DURACION_GIRO_REDUCIDO_MS
+        : DURACION_GIRO_NORMAL_MS;
+      const vueltasBase = prefiereMovimientoReducido
+        ? VUELTAS_REDUCIDAS_DEG
+        : VUELTAS_NORMALES_DEG;
+
+      const indiceGanador = obtenerIndiceGanador(selected);
+      const anguloInicial = state.rotation;
+      const anguloFinal = calcularAnguloFinal(indiceGanador, vueltasBase);
+
+      loadingDetail.textContent = prefiereMovimientoReducido
+        ? 'Girando ruleta…'
+        : 'Girando ruleta hacia tu recomendación…';
+
+      animarRuleta(
+        rouletteSvg,
+        anguloInicial,
+        anguloFinal,
+        duracion,
+        !prefiereMovimientoReducido,
+        () => {
+          // t+0ms: La ruleta se detiene; se rellena la ficha oculta y arranca la secuencia
+          renderAnimeCard(selected);
+          ejecutarSecuenciaRevelacion(indiceGanador, prefiereMovimientoReducido);
+        }
+      );
     } catch (error) {
-      const elapsed = Date.now() - startedAt;
-      const waitMs = Math.max(0, Math.min(800, SPIN_MIN_DURATION_MS - elapsed));
-      setTimeout(() => {
-        errorMessage.textContent =
-          error && error.message
-            ? error.message
-            : 'No fue posible obtener una recomendación en este momento.';
-        showStage('error');
-        setSpinningUI(false);
-      }, waitMs);
+      cancelarSecuenciaRevelacion();
+      errorMessage.textContent =
+        error && error.message
+          ? error.message
+          : 'No fue posible obtener una recomendación en este momento.';
+      showStage('error');
+      setSpinningUI(false);
     }
   }
 
