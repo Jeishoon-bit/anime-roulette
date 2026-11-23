@@ -383,7 +383,7 @@
 
       return {
         items,
-        lastPage: Math.max(1, Math.min(lastPage || 1, 18)),
+        lastPage: Math.max(1, Math.min(lastPage || 1, 60)),
       };
     } finally {
       clearTimeout(timeoutId);
