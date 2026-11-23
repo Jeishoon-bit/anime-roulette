@@ -79,6 +79,25 @@
             </select>
           </div>
 
+          <div class="filter-group">
+            <span class="filter-label">Modo especial</span>
+            <button
+              type="button"
+              id="pozo-toggle-btn"
+              class="pozo-toggle"
+              role="switch"
+              aria-checked="false"
+            >
+              <span class="pozo-toggle-text">
+                <span class="pozo-toggle-title">Pozo Olvidado</span>
+                <span class="pozo-toggle-desc">Solo joyas con menos de 10.000 miembros en AniList</span>
+              </span>
+              <span class="pozo-switch-track" aria-hidden="true">
+                <span class="pozo-switch-thumb"></span>
+              </span>
+            </button>
+          </div>
+
           <div class="wheel-stage">
             <div class="wheel-pointer" aria-hidden="true">
               <span class="pointer-dot"></span>
@@ -190,6 +209,8 @@
                   <span id="anime-year-sep" aria-hidden="true">·</span>
                   <span id="anime-year"></span>
                 </div>
+
+                <p id="pozo-popularity-note" class="pozo-popularity-note is-hidden"></p>
 
                 <h2 id="anime-title" class="anime-title">Título del Anime</h2>
                 <p id="anime-subtitles" class="anime-subtitles"></p>
