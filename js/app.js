@@ -2,20 +2,21 @@
   const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
   const KITSU_API_URL = 'https://kitsu.io/api/edge/anime';
   const STORAGE_KEY = 'anime_roulette_watched_v2';
-  const POZO_STORAGE_KEY = 'anime_roulette_pozo';
   const DURACION_GIRO_NORMAL_MS = 5000;
   const DURACION_GIRO_REDUCIDO_MS = 800;
   const VUELTAS_NORMALES_DEG = 2160; // 6 vueltas completas
   const VUELTAS_REDUCIDAS_DEG = 360; // 1 vuelta completa
   const REQUEST_TIMEOUT_MS = 8000;
   const TONOS_SAKURA = ['#f8c8d8', '#f4b8cc', '#fad6e3', '#f2afc5'];
+  // Parche v1.1: límite de páginas ampliado para reducir el sesgo de popularidad
+  const MAX_PAGINAS_ANILIST = 60; // ~1.500 candidatos por combinación de filtros
 
   const WHEEL_SEGMENTS = [
-    { label: 'Acción', color: '#FF2A85', genre: 'Action', kitsuSlug: 'action' },
+    { label: 'Acción', color: '#FF4D6D', genre: 'Action', kitsuSlug: 'action' },
     { label: 'Aventura', color: '#F59E0B', genre: 'Adventure', kitsuSlug: 'adventure' },
     { label: 'Comedia', color: '#10B981', genre: 'Comedy', kitsuSlug: 'comedy' },
     { label: 'Fantasía', color: '#8B5CF6', genre: 'Fantasy', kitsuSlug: 'fantasy' },
-    { label: 'Misterio', color: '#00D8E6', genre: 'Mystery', kitsuSlug: 'mystery' },
+    { label: 'Misterio', color: '#06B6D4', genre: 'Mystery', kitsuSlug: 'mystery' },
     { label: 'Slice of Life', color: '#EC4899', genre: 'Slice of Life', kitsuSlug: 'slice-of-life' },
     { label: 'Sci-Fi', color: '#6366F1', genre: 'Sci-Fi', kitsuSlug: 'science-fiction' },
     { label: 'Romance', color: '#F472B6', genre: 'Romance', kitsuSlug: 'romance' },
@@ -25,7 +26,7 @@
   const EXPLICIT_GENRES = new Set(['hentai', 'ecchi', 'erotica']);
 
   const ANILIST_QUERY = `
-    query ($page: Int, $genres: [String], $minScore: Int, $popularityGreater: Int, $popularityLesser: Int) {
+    query ($page: Int, $genres: [String], $minScore: Int) {
       Page(page: $page, perPage: 25) {
         pageInfo {
           lastPage
@@ -38,14 +39,11 @@
           sort: POPULARITY_DESC
           genre_in: $genres
           averageScore_greater: $minScore
-          popularity_greater: $popularityGreater
-          popularity_lesser: $popularityLesser
         ) {
           id
           idMal
           siteUrl
           isAdult
-          popularity
           title {
             romaji
             english
@@ -70,8 +68,8 @@
 
   const state = {
     genre: '',
-    minScore: '7.5',
-    modoPozo: loadModoPozo(),
+    // Parche v1.1: la puntuación inicial se sincroniza con el HTML tras obtener el DOM
+    minScore: '',
     rotation: 0,
     animationFrameId: null,
     revealTimers: [],
@@ -89,7 +87,6 @@
   const pointerNeedle = document.getElementById('wheel-pointer-needle');
   const genreButtonsContainer = document.getElementById('genre-buttons');
   const minScoreSelect = document.getElementById('min-score-select');
-  const pozoToggleBtn = document.getElementById('pozo-toggle-btn');
   const headerSpinBtn = document.getElementById('header-spin-btn');
   const mainSpinBtn = document.getElementById('main-spin-btn');
   const wheelHubBtn = document.getElementById('wheel-hub-btn');
@@ -110,7 +107,6 @@
   const posterFallback = document.getElementById('poster-fallback');
   const posterFallbackTitle = document.getElementById('poster-fallback-title');
   const animeScore = document.getElementById('anime-score');
-  const pozoPopularityNote = document.getElementById('pozo-popularity-note');
   const animeEpisodes = document.getElementById('anime-episodes');
   const animeStatus = document.getElementById('anime-status');
   const animeYearSep = document.getElementById('anime-year-sep');
@@ -121,7 +117,6 @@
   const animeSynopsis = document.getElementById('anime-synopsis');
   const toggleSynopsisBtn = document.getElementById('toggle-synopsis-btn');
   const markWatchedBtn = document.getElementById('mark-watched-btn');
-  const shareCardBtn = document.getElementById('share-card-btn');
   const malLink = document.getElementById('mal-link');
 
   const navWatchedCount = document.getElementById('nav-watched-count');
@@ -132,38 +127,22 @@
   const resetHistoryBtn = document.getElementById('reset-history-btn');
   const watchedGrid = document.getElementById('watched-grid');
 
-  function loadModoPozo() {
-    try {
-      return localStorage.getItem(POZO_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  }
-
-  function saveModoPozo() {
-    try {
-      localStorage.setItem(POZO_STORAGE_KEY, String(state.modoPozo));
-    } catch {
-      // Ignorar errores de almacenamiento
-    }
-  }
-
-  function updatePozoUI() {
-    if (!pozoToggleBtn) return;
-    pozoToggleBtn.classList.toggle('is-active', state.modoPozo);
-    pozoToggleBtn.setAttribute('aria-checked', String(state.modoPozo));
-  }
-
-  function formatearMiles(valor) {
-    return String(Math.round(valor)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  }
+  // Parche v1.1: sincroniza la puntuación por defecto con la opción marcada en el HTML
+  state.minScore = minScoreSelect.value || '';
 
   function loadWatched() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      // Parche v1.1: migra IDs numéricos legacy de Kitsu (+1000000) al formato 'kitsu:ID'
+      return parsed.map((item) => {
+        if (item && typeof item.id === 'number' && item.id > 1000000) {
+          return { ...item, id: `kitsu:${item.id - 1000000}` };
+        }
+        return item;
+      });
     } catch {
       return [];
     }
@@ -223,43 +202,29 @@
 
   function renderWheel() {
     const segmentAngle = 360 / WHEEL_SEGMENTS.length;
-    const parts = [
-      '<defs>',
-      '<radialGradient id="gachaInnerShadow" cx="50%" cy="50%" r="50%">',
-      '<stop offset="68%" stop-color="rgba(0,0,0,0)" />',
-      '<stop offset="100%" stop-color="rgba(0,0,0,0.55)" />',
-      '</radialGradient>',
-      '<linearGradient id="gachaRimStroke" x1="0%" y1="0%" x2="100%" y2="100%">',
-      '<stop offset="0%" stop-color="#00F0FF" stop-opacity="0.55" />',
-      '<stop offset="50%" stop-color="#FF2A85" stop-opacity="0.65" />',
-      '<stop offset="100%" stop-color="#00F0FF" stop-opacity="0.55" />',
-      '</linearGradient>',
-      '</defs>',
-      '<circle cx="160" cy="160" r="150" fill="#0A0D14" stroke="url(#gachaRimStroke)" stroke-width="2" />',
-    ];
+    const parts = ['<circle cx="160" cy="160" r="150" fill="#0E121B" />'];
 
     WHEEL_SEGMENTS.forEach((seg, index) => {
       const start = index * segmentAngle;
       const end = start + segmentAngle;
       const mid = start + segmentAngle / 2;
-      const pos = polarToCartesian(160, 160, 101, mid);
+      const pos = polarToCartesian(160, 160, 102, mid);
       const isHighlighted = state.genre === '' || state.genre === seg.genre;
-      const fillOpacity = isHighlighted ? '0.92' : '0.28';
+      const fillOpacity = isHighlighted ? '0.88' : '0.24';
 
       parts.push(
-        `<path class="wheel-segment" data-segment-index="${index}" d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#0B0E14" stroke-width="2.5" />`
+        `<path class="wheel-segment" data-segment-index="${index}" d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#090B10" stroke-width="2.5" />`
       );
       parts.push(
-        `<path d="${describeArcWedge(160, 160, 146, 138, start, end)}" fill="${seg.color}" fill-opacity="0.95" stroke="#0B0E14" stroke-width="1.5" />`
+        `<path d="${describeArcWedge(160, 160, 146, 138, start, end)}" fill="${seg.color}" fill-opacity="0.92" stroke="#090B10" stroke-width="1.5" />`
       );
       parts.push(
-        `<text x="${pos.x}" y="${pos.y}" fill="#FFFFFF" font-size="11.2" font-weight="700" letter-spacing="0.02em" font-family="Outfit, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`
+        `<text x="${pos.x}" y="${pos.y}" fill="#F8FAFC" font-size="11" font-weight="600" font-family="Outfit, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`
       );
     });
 
-    parts.push('<circle cx="160" cy="160" r="146" fill="url(#gachaInnerShadow)" pointer-events="none" />');
     parts.push('<g id="winner-glow-layer" class="winner-glow-overlay" aria-hidden="true"></g>');
-    parts.push('<circle cx="160" cy="160" r="50" fill="#0F1422" stroke="#00F0FF" stroke-opacity="0.4" stroke-width="2" />');
+    parts.push('<circle cx="160" cy="160" r="48" fill="#121620" stroke="#090B10" stroke-width="3" />');
     rouletteSvg.innerHTML = parts.join('');
   }
 
@@ -277,6 +242,9 @@
       case 'UPCOMING':
       case 'TBA':
         return 'Próximamente';
+      // Parche v1.1: estado de Kitsu que quedaba sin traducir
+      case 'UNRELEASED':
+        return 'Sin estrenar';
       case 'CANCELLED':
         return 'Cancelado';
       case 'HIATUS':
@@ -302,11 +270,9 @@
       emptySpinBtn,
       retrySpinBtn,
       nextSpinBtn,
-      shareCardBtn,
       minScoreSelect,
-      pozoToggleBtn,
     ].forEach((el) => {
-      if (el) el.disabled = spinning;
+      el.disabled = spinning;
     });
     genreButtonsContainer.querySelectorAll('button').forEach((btn) => {
       btn.disabled = spinning;
@@ -316,16 +282,11 @@
     wheelHubText.textContent = spinning ? 'Girando' : 'Girar';
   }
 
-  async function fetchAniListPage(genre, minScore, page, modoPozo) {
+  async function fetchAniListPage(genre, minScore, page) {
     const variables = { page };
     if (genre) variables.genres = [genre];
     if (minScore) {
       variables.minScore = Math.max(1, Math.round(parseFloat(minScore) * 10) - 1);
-    }
-    // Modo Pozo Olvidado: filtra entre 500 y 10.000 miembros en AniList
-    if (modoPozo) {
-      variables.popularityGreater = 500;
-      variables.popularityLesser = 10000;
     }
 
     const controller = new AbortController();
@@ -371,8 +332,6 @@
           imageUrl:
             (media.coverImage && (media.coverImage.extraLarge || media.coverImage.large)) || '',
           score: typeof media.averageScore === 'number' ? media.averageScore / 10 : null,
-          popularity: typeof media.popularity === 'number' ? media.popularity : null,
-          fromPozo: Boolean(modoPozo),
           episodes: media.episodes,
           status: media.status,
           year: media.seasonYear,
@@ -383,7 +342,8 @@
 
       return {
         items,
-        lastPage: Math.max(1, Math.min(lastPage || 1, 18)),
+        // Parche v1.1: límite ampliado (era 18) para reducir el sesgo hacia los más populares
+        lastPage: Math.max(1, Math.min(lastPage || 1, MAX_PAGINAS_ANILIST)),
       };
     } finally {
       clearTimeout(timeoutId);
@@ -406,7 +366,9 @@
     }
     if (minScore) {
       const minRating = Math.round(parseFloat(minScore) * 10);
-      params.set('filter[averageRating]', `${minRating}..100`);
+      // Parche v1.1: mismo umbral que AniList (> X-1) para que ambos proveedores
+      // interpreten "+7.5" de forma idéntica (antes Kitsu era más estricto)
+      params.set('filter[averageRating]', `${Math.max(1, minRating - 1)}..100`);
     }
 
     const controller = new AbortController();
@@ -436,7 +398,8 @@
         const numericRating = attr.averageRating ? parseFloat(attr.averageRating) / 10 : null;
         const year = attr.startDate ? parseInt(attr.startDate.slice(0, 4), 10) : null;
         return {
-          id: Number(rec.id) + 1000000,
+          // Parche v1.1: namespace explícito en vez de +1000000 (evita colisiones futuras)
+          id: `kitsu:${rec.id}`,
           malId: null,
           url: `https://kitsu.io/anime/${attr.slug}`,
           title: attr.canonicalTitle || 'Anime sin título',
@@ -462,13 +425,11 @@
   }
 
   async function pickFromProvider(providerName, fetcher) {
-    const cacheKey = `${providerName}::${state.genre || 'all'}::${state.minScore || 'any'}::${
-      state.modoPozo ? 'pozo' : 'normal'
-    }`;
+    const cacheKey = `${providerName}::${state.genre || 'all'}::${state.minScore || 'any'}`;
     let pool = poolCache.get(cacheKey);
 
     if (!pool) {
-      const firstPage = await fetcher(state.genre, state.minScore, 1, state.modoPozo);
+      const firstPage = await fetcher(state.genre, state.minScore, 1);
       pool = {
         lastVisiblePage: firstPage.lastPage,
         pages: new Map([[1, firstPage.items]]),
@@ -489,7 +450,7 @@
 
       let items = pool.pages.get(page);
       if (!items) {
-        const res = await fetcher(state.genre, state.minScore, page, state.modoPozo);
+        const res = await fetcher(state.genre, state.minScore, page);
         items = res.items;
         pool.pages.set(page, items);
       }
@@ -532,14 +493,6 @@
           'No quedan animes sin ver con estos filtros. Prueba bajar la puntuación o reiniciar tu historial.'
         );
       }
-
-      // El modo Pozo Olvidado es exclusivo de AniList; no usar Kitsu como respaldo
-      if (state.modoPozo) {
-        throw new Error(
-          'No se pudo conectar con los servidores de anime en este momento. Verifica tu conexión e inténtalo de nuevo.'
-        );
-      }
-
       try {
         return await pickFromProvider('kitsu', fetchKitsuPage);
       } catch (fallbackErr) {
@@ -588,17 +541,6 @@
     animeSubtitles.classList.toggle('is-hidden', !subtitles);
 
     animeScore.textContent = anime.score ? `★ ${anime.score.toFixed(2)}` : '★ N/D';
-    if (pozoPopularityNote) {
-      if (anime.fromPozo && typeof anime.popularity === 'number') {
-        const vistos = formatearMiles(anime.popularity);
-        const siguiente = formatearMiles(anime.popularity + 1);
-        pozoPopularityNote.textContent = `Solo ${vistos} personas en el mundo han visto esto. Ahora tú eres la ${siguiente}.`;
-        pozoPopularityNote.classList.remove('is-hidden');
-      } else {
-        pozoPopularityNote.textContent = '';
-        pozoPopularityNote.classList.add('is-hidden');
-      }
-    }
     animeEpisodes.textContent = anime.episodes
       ? `${anime.episodes} episodios`
       : 'Episodios por confirmar';
@@ -640,10 +582,6 @@
       : 'Ver ficha completa ↗';
 
     updateMarkWatchedButton();
-    if (shareCardBtn) {
-      shareCardBtn.textContent = 'Compartir PNG';
-      shareCardBtn.disabled = false;
-    }
     // Prepara la ficha oculta antes de iniciar la línea de tiempo de revelación
     animeCard.classList.remove('visible');
     animeCard.classList.add('oculta');
@@ -843,7 +781,9 @@
         // Fija exactamente el ángulo ganador y limpia el filter explícitamente al terminar
         elemento.style.transform = `rotate(${anguloFinal}deg)`;
         elemento.style.filter = '';
-        state.rotation = anguloFinal;
+        // Parche v1.1: normaliza la rotación acumulada para evitar valores de transform
+        // de 6 dígitos tras muchos giros (visualmente idéntico, más robusto)
+        state.rotation = ((anguloFinal % 360) + 360) % 360;
         state.animationFrameId = null;
         alFinalizar();
       }
@@ -1020,10 +960,9 @@
 
     const activeBtn = genreButtonsContainer.querySelector('.genre-btn.is-active');
     const genreLabel = activeBtn ? activeBtn.textContent : 'Todos';
-    const partesFiltro = [genreLabel];
-    if (state.minScore) partesFiltro.push(`+${state.minScore}`);
-    if (state.modoPozo) partesFiltro.push('Pozo Olvidado');
-    loadingDetail.textContent = `Filtrando por ${partesFiltro.join(' · ')}`;
+    loadingDetail.textContent = `Filtrando por ${genreLabel}${
+      state.minScore ? ` · puntuación +${state.minScore}` : ''
+    }`;
 
     try {
       // Calcula primero el anime elegido y luego anima la ruleta hasta su segmento ganador
@@ -1088,21 +1027,15 @@
     });
     btn.classList.add('is-active');
     state.genre = btn.dataset.genre || '';
+    // Parche v1.1: cancela el fade del brillo del ganador antes de reconstruir el SVG
+    // (evita que el desvanecimiento se corte bruscamente al cambiar de género)
+    cancelarSecuenciaRevelacion();
     renderWheel();
   });
 
   minScoreSelect.addEventListener('change', (event) => {
     state.minScore = event.target.value;
   });
-
-  if (pozoToggleBtn) {
-    pozoToggleBtn.addEventListener('click', () => {
-      if (state.isSpinning) return;
-      state.modoPozo = !state.modoPozo;
-      saveModoPozo();
-      updatePozoUI();
-    });
-  }
 
   [headerSpinBtn, mainSpinBtn, wheelHubBtn, emptySpinBtn, retrySpinBtn, nextSpinBtn].forEach(
     (btn) => {
@@ -1113,10 +1046,7 @@
   clearFiltersBtn.addEventListener('click', () => {
     state.genre = '';
     state.minScore = '';
-    state.modoPozo = false;
     minScoreSelect.value = '';
-    saveModoPozo();
-    updatePozoUI();
     genreButtonsContainer.querySelectorAll('.genre-btn').forEach((btn) => {
       btn.classList.toggle('is-active', btn.dataset.genre === '');
     });
@@ -1152,470 +1082,6 @@
     updateMarkWatchedButton();
   });
 
-  // Dibuja un rectángulo redondeado auxiliar en el canvas
-  function drawRoundedRect(ctx, x, y, w, h, r) {
-    const radius = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + w - radius, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-    ctx.lineTo(x + w, y + h - radius);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-    ctx.lineTo(x + radius, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  }
-
-  // Divide texto largo en líneas dentro de un ancho máximo
-  function wrapTextLines(ctx, text, maxWidth, maxLines) {
-    const words = String(text || '').trim().split(/\s+/);
-    const lines = [];
-    let currentLine = '';
-
-    for (let i = 0; i < words.length; i++) {
-      const testLine = currentLine ? `${currentLine} ${words[i]}` : words[i];
-      if (ctx.measureText(testLine).width <= maxWidth) {
-        currentLine = testLine;
-      } else {
-        if (currentLine) {
-          lines.push(currentLine);
-          currentLine = words[i];
-        } else {
-          lines.push(words[i]);
-          currentLine = '';
-        }
-        if (lines.length === maxLines) break;
-      }
-    }
-
-    if (currentLine && lines.length < maxLines) {
-      lines.push(currentLine);
-    } else if (currentLine && lines.length === maxLines) {
-      let last = lines[maxLines - 1];
-      while (last.length > 3 && ctx.measureText(`${last}…`).width > maxWidth) {
-        last = last.slice(0, -1).trimEnd();
-      }
-      lines[maxLines - 1] = `${last}…`;
-    }
-
-    return lines;
-  }
-
-  function drawSakuraAccent(ctx, x, y, size, angleDeg, color, alpha) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate((angleDeg * Math.PI) / 180);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(0, -size);
-    ctx.bezierCurveTo(size * 0.9, -size * 0.6, size * 0.9, size * 0.6, 0, size);
-    ctx.bezierCurveTo(-size * 0.9, size * 0.6, -size * 0.9, -size * 0.6, 0, -size);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  async function blobToDrawable(blob) {
-    if (typeof createImageBitmap === 'function') {
-      try {
-        return await createImageBitmap(blob);
-      } catch {
-        // Continúa con decodificación vía Data URL
-      }
-    }
-
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = typeof reader.result === 'string' ? reader.result : '';
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  async function loadCorsImage(url) {
-    if (!url) return null;
-
-    const sep = url.includes('?') ? '&' : '?';
-    const candidates = [url, `${url}${sep}_cors=${Date.now()}`];
-
-    for (const candidateUrl of candidates) {
-      try {
-        const response = await fetch(candidateUrl, {
-          mode: 'cors',
-          cache: 'no-store',
-          credentials: 'omit',
-          referrerPolicy: 'no-referrer',
-        });
-        if (!response.ok) continue;
-        const blob = await response.blob();
-        const drawable = await blobToDrawable(blob);
-        if (drawable) return drawable;
-      } catch {
-        // Intenta el siguiente candidato sin caché CORS
-      }
-    }
-
-    return await new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.referrerPolicy = 'no-referrer';
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = candidates[1];
-    });
-  }
-
-  // Genera una tarjeta PNG vertical (1080x1350) lista para Discord, Instagram o X
-  async function generateShareCardBlob(anime) {
-    if (document.fonts && document.fonts.ready) {
-      await document.fonts.ready;
-    }
-
-    const W = 1080;
-    const H = 1350;
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('No se pudo inicializar el lienzo de imagen.');
-    }
-
-    ctx.fillStyle = '#090B10';
-    ctx.fillRect(0, 0, W, H);
-
-    const topGlow = ctx.createRadialGradient(180, 120, 40, 180, 120, 620);
-    topGlow.addColorStop(0, 'rgba(255, 77, 109, 0.22)');
-    topGlow.addColorStop(1, 'rgba(255, 77, 109, 0)');
-    ctx.fillStyle = topGlow;
-    ctx.fillRect(0, 0, W, H);
-
-    const bottomGlow = ctx.createRadialGradient(900, 1180, 30, 900, 1180, 560);
-    bottomGlow.addColorStop(0, 'rgba(248, 200, 216, 0.14)');
-    bottomGlow.addColorStop(1, 'rgba(248, 200, 216, 0)');
-    ctx.fillStyle = bottomGlow;
-    ctx.fillRect(0, 0, W, H);
-
-    drawSakuraAccent(ctx, 940, 155, 14, 28, '#F8C8D8', 0.45);
-    drawSakuraAccent(ctx, 985, 220, 10, -20, '#F4B8CC', 0.35);
-    drawSakuraAccent(ctx, 130, 1170, 12, 42, '#FAD6E3', 0.3);
-    drawSakuraAccent(ctx, 960, 1140, 15, -35, '#F8C8D8', 0.38);
-
-    ctx.save();
-    drawRoundedRect(ctx, 56, 56, W - 112, H - 112, 34);
-    ctx.fillStyle = '#121620';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.save();
-    ctx.fillStyle = '#FF4D6D';
-    ctx.beginPath();
-    ctx.arc(124, 124, 14, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#121620';
-    ctx.beginPath();
-    ctx.arc(124, 124, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#F4F6FB';
-    ctx.font = '700 28px Outfit, sans-serif';
-    ctx.fillText('AniRuleta', 152, 133);
-
-    ctx.fillStyle = '#FF6B86';
-    ctx.font = '700 18px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText('MI DESTINO DE ANIME HOY', 110, 174);
-
-    const badgeText = '100% SFW';
-    ctx.font = '600 17px "JetBrains Mono", monospace';
-    const badgeW = ctx.measureText(badgeText).width + 32;
-    drawRoundedRect(ctx, W - 110 - badgeW, 108, badgeW, 38, 10);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = '#CBD5E1';
-    ctx.fillText(badgeText, W - 110 - badgeW + 16, 133);
-    ctx.restore();
-
-    const posterImg = await loadCorsImage(anime.imageUrl);
-    const showcaseX = 110;
-    const showcaseY = 208;
-    const showcaseW = W - 220;
-    const showcaseH = 560;
-
-    ctx.save();
-    drawRoundedRect(ctx, showcaseX, showcaseY, showcaseW, showcaseH, 26);
-    ctx.clip();
-    ctx.fillStyle = '#0B0E14';
-    ctx.fillRect(showcaseX, showcaseY, showcaseW, showcaseH);
-
-    if (posterImg) {
-      ctx.save();
-      ctx.globalAlpha = 0.34;
-      if ('filter' in ctx) {
-        ctx.filter = 'blur(26px)';
-      }
-      const bgScale = Math.max(showcaseW / posterImg.width, showcaseH / posterImg.height);
-      const bgW = posterImg.width * bgScale;
-      const bgH = posterImg.height * bgScale;
-      ctx.drawImage(
-        posterImg,
-        showcaseX + (showcaseW - bgW) / 2,
-        showcaseY + (showcaseH - bgH) / 2,
-        bgW,
-        bgH
-      );
-      ctx.restore();
-
-      const vignette = ctx.createLinearGradient(0, showcaseY, 0, showcaseY + showcaseH);
-      vignette.addColorStop(0, 'rgba(9, 11, 16, 0.35)');
-      vignette.addColorStop(1, 'rgba(9, 11, 16, 0.78)');
-      ctx.fillStyle = vignette;
-      ctx.fillRect(showcaseX, showcaseY, showcaseW, showcaseH);
-    }
-    ctx.restore();
-
-    ctx.save();
-    drawRoundedRect(ctx, showcaseX, showcaseY, showcaseW, showcaseH, 26);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.restore();
-
-    const posterH = 500;
-    const posterW = 352;
-    const posterX = (W - posterW) / 2;
-    const posterY = showcaseY + (showcaseH - posterH) / 2;
-
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
-    ctx.shadowBlur = 32;
-    ctx.shadowOffsetY = 16;
-    drawRoundedRect(ctx, posterX, posterY, posterW, posterH, 20);
-    ctx.fillStyle = '#0E121B';
-    ctx.fill();
-    ctx.restore();
-
-    const primaryTitle = anime.titleEnglish || anime.title;
-
-    ctx.save();
-    drawRoundedRect(ctx, posterX, posterY, posterW, posterH, 20);
-    ctx.clip();
-    if (posterImg) {
-      const scale = Math.max(posterW / posterImg.width, posterH / posterImg.height);
-      const drawW = posterImg.width * scale;
-      const drawH = posterImg.height * scale;
-      ctx.drawImage(
-        posterImg,
-        posterX + (posterW - drawW) / 2,
-        posterY + (posterH - drawH) / 2,
-        drawW,
-        drawH
-      );
-    } else {
-      const fallbackGrad = ctx.createLinearGradient(
-        posterX,
-        posterY,
-        posterX + posterW,
-        posterY + posterH
-      );
-      fallbackGrad.addColorStop(0, '#1B2233');
-      fallbackGrad.addColorStop(1, '#0F131D');
-      ctx.fillStyle = fallbackGrad;
-      ctx.fillRect(posterX, posterY, posterW, posterH);
-      ctx.fillStyle = '#F4F6FB';
-      ctx.font = '700 28px Outfit, sans-serif';
-      ctx.textAlign = 'center';
-      const fallbackLines = wrapTextLines(ctx, primaryTitle, posterW - 48, 4);
-      fallbackLines.forEach((line, idx) => {
-        ctx.fillText(line, posterX + posterW / 2, posterY + 210 + idx * 38);
-      });
-      ctx.textAlign = 'left';
-    }
-    ctx.restore();
-
-    ctx.save();
-    drawRoundedRect(ctx, posterX, posterY, posterW, posterH, 20);
-    ctx.strokeStyle = 'rgba(255, 215, 130, 0.45)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    ctx.restore();
-
-    let cursorY = 825;
-    const metaParts = [
-      anime.episodes ? `${anime.episodes} episodios` : 'Episodios N/D',
-      translateStatus(anime.status),
-    ];
-    if (anime.year) metaParts.push(String(anime.year));
-
-    ctx.font = '700 24px "JetBrains Mono", monospace';
-    const scoreText = `★ ${anime.score ? anime.score.toFixed(2) : 'N/D'}`;
-    ctx.fillStyle = '#FBBF24';
-    ctx.fillText(scoreText, 110, cursorY);
-
-    const scoreWidth = ctx.measureText(scoreText).width;
-    ctx.font = '500 23px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = '#94A3B8';
-    ctx.fillText(`  ·  ${metaParts.join('  ·  ')}`, 110 + scoreWidth, cursorY);
-
-    cursorY += 58;
-    ctx.fillStyle = '#F4F6FB';
-    ctx.font = '700 46px Outfit, sans-serif';
-    const titleLines = wrapTextLines(ctx, primaryTitle, W - 220, 2);
-    titleLines.forEach((line) => {
-      ctx.fillText(line, 110, cursorY);
-      cursorY += 56;
-    });
-
-    const secondaryTitle =
-      anime.titleEnglish && anime.titleEnglish !== anime.title ? anime.title : null;
-    const subtitle = [secondaryTitle, anime.titleJapanese].filter(Boolean).join(' · ');
-    if (subtitle) {
-      ctx.fillStyle = '#94A3B8';
-      ctx.font = '500 23px "Plus Jakarta Sans", sans-serif';
-      const subLines = wrapTextLines(ctx, subtitle, W - 220, 1);
-      ctx.fillText(subLines[0], 110, cursorY);
-      cursorY += 42;
-    } else {
-      cursorY += 10;
-    }
-
-    const genresToShow = (anime.genres || []).slice(0, 4);
-    if (genresToShow.length > 0) {
-      let tagX = 110;
-      const tagY = cursorY + 8;
-      ctx.font = '600 20px "Plus Jakarta Sans", sans-serif';
-
-      for (const genre of genresToShow) {
-        const textW = ctx.measureText(genre).width;
-        const pillW = textW + 34;
-        if (tagX + pillW > W - 110) break;
-
-        drawRoundedRect(ctx, tagX, tagY, pillW, 42, 10);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        ctx.fillStyle = '#E2E8F0';
-        ctx.fillText(genre, tagX + 17, tagY + 28);
-        tagX += pillW + 12;
-      }
-    }
-
-    ctx.fillStyle = '#F8C8D8';
-    ctx.font = '600 22px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText('«La ruleta ha hablado. Hoy toca ver este anime.»', 110, 1172);
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(110, 1204);
-    ctx.lineTo(W - 110, 1204);
-    ctx.stroke();
-
-    ctx.fillStyle = '#94A3B8';
-    ctx.font = '500 20px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText('Descubre el tuyo en AniRuleta', 110, 1246);
-
-    ctx.save();
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#CBD5E1';
-    ctx.font = '500 19px "JetBrains Mono", monospace';
-    const sourceLabel = anime.malId
-      ? `myanimelist.net/anime/${anime.malId}`
-      : 'AniRuleta · Catálogo SFW';
-    ctx.fillText(sourceLabel, W - 110, 1246);
-    ctx.restore();
-
-    if (posterImg && typeof posterImg.close === 'function') {
-      posterImg.close();
-    }
-
-    return await new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('No se pudo exportar la imagen PNG.'));
-      }, 'image/png');
-    });
-  }
-
-  function slugifyTitle(title) {
-    return (
-      String(title || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 40) || 'anime'
-    );
-  }
-
-  async function shareOrDownloadAnimeCard(anime) {
-    const primaryTitle = anime.titleEnglish || anime.title;
-    const blob = await generateShareCardBlob(anime);
-    const fileName = `aniruleta-${slugifyTitle(primaryTitle)}.png`;
-    const file = new File([blob], fileName, { type: 'image/png' });
-
-    if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
-      try {
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: `Mi destino de anime hoy: ${primaryTitle}`,
-            text: `La ruleta de AniRuleta eligió: ${primaryTitle}`,
-          });
-          return 'shared';
-        }
-      } catch (err) {
-        if (err && err.name === 'AbortError') return 'shared';
-      }
-    }
-
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
-    return 'downloaded';
-  }
-
-  if (shareCardBtn) {
-    shareCardBtn.addEventListener('click', async () => {
-      if (!state.currentAnime || state.isSpinning) return;
-      shareCardBtn.disabled = true;
-      shareCardBtn.textContent = 'Generando…';
-      try {
-        await shareOrDownloadAnimeCard(state.currentAnime);
-        shareCardBtn.textContent = '¡Imagen lista!';
-        window.setTimeout(() => {
-          shareCardBtn.textContent = 'Compartir PNG';
-          shareCardBtn.disabled = state.isSpinning;
-        }, 2000);
-      } catch {
-        shareCardBtn.textContent = 'Compartir PNG';
-        shareCardBtn.disabled = state.isSpinning;
-      }
-    });
-  }
-
   cancelResetBtn.addEventListener('click', () => {
     state.confirmReset = false;
     updateResetUI();
@@ -1636,7 +1102,6 @@
     updateResetUI();
   });
 
-  updatePozoUI();
   renderWheel();
   renderWatchedHistory();
   showStage('idle');
