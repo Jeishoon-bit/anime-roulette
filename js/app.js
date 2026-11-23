@@ -2,6 +2,7 @@
   const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
   const KITSU_API_URL = 'https://kitsu.io/api/edge/anime';
   const STORAGE_KEY = 'anime_roulette_watched_v2';
+  const POZO_STORAGE_KEY = 'anime_roulette_pozo';
   const DURACION_GIRO_NORMAL_MS = 5000;
   const DURACION_GIRO_REDUCIDO_MS = 800;
   const VUELTAS_NORMALES_DEG = 2160; // 6 vueltas completas
@@ -24,7 +25,7 @@
   const EXPLICIT_GENRES = new Set(['hentai', 'ecchi', 'erotica']);
 
   const ANILIST_QUERY = `
-    query ($page: Int, $genres: [String], $minScore: Int) {
+    query ($page: Int, $genres: [String], $minScore: Int, $popularityGreater: Int, $popularityLesser: Int) {
       Page(page: $page, perPage: 25) {
         pageInfo {
           lastPage
@@ -37,11 +38,14 @@
           sort: POPULARITY_DESC
           genre_in: $genres
           averageScore_greater: $minScore
+          popularity_greater: $popularityGreater
+          popularity_lesser: $popularityLesser
         ) {
           id
           idMal
           siteUrl
           isAdult
+          popularity
           title {
             romaji
             english
@@ -67,6 +71,7 @@
   const state = {
     genre: '',
     minScore: '7.5',
+    modoPozo: loadModoPozo(),
     rotation: 0,
     animationFrameId: null,
     revealTimers: [],
@@ -84,6 +89,7 @@
   const pointerNeedle = document.getElementById('wheel-pointer-needle');
   const genreButtonsContainer = document.getElementById('genre-buttons');
   const minScoreSelect = document.getElementById('min-score-select');
+  const pozoToggleBtn = document.getElementById('pozo-toggle-btn');
   const headerSpinBtn = document.getElementById('header-spin-btn');
   const mainSpinBtn = document.getElementById('main-spin-btn');
   const wheelHubBtn = document.getElementById('wheel-hub-btn');
@@ -104,6 +110,7 @@
   const posterFallback = document.getElementById('poster-fallback');
   const posterFallbackTitle = document.getElementById('poster-fallback-title');
   const animeScore = document.getElementById('anime-score');
+  const pozoPopularityNote = document.getElementById('pozo-popularity-note');
   const animeEpisodes = document.getElementById('anime-episodes');
   const animeStatus = document.getElementById('anime-status');
   const animeYearSep = document.getElementById('anime-year-sep');
@@ -124,6 +131,32 @@
   const cancelResetBtn = document.getElementById('cancel-reset-btn');
   const resetHistoryBtn = document.getElementById('reset-history-btn');
   const watchedGrid = document.getElementById('watched-grid');
+
+  function loadModoPozo() {
+    try {
+      return localStorage.getItem(POZO_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  function saveModoPozo() {
+    try {
+      localStorage.setItem(POZO_STORAGE_KEY, String(state.modoPozo));
+    } catch {
+      // Ignorar errores de almacenamiento
+    }
+  }
+
+  function updatePozoUI() {
+    if (!pozoToggleBtn) return;
+    pozoToggleBtn.classList.toggle('is-active', state.modoPozo);
+    pozoToggleBtn.setAttribute('aria-checked', String(state.modoPozo));
+  }
+
+  function formatearMiles(valor) {
+    return String(Math.round(valor)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
 
   function loadWatched() {
     try {
@@ -271,6 +304,7 @@
       nextSpinBtn,
       shareCardBtn,
       minScoreSelect,
+      pozoToggleBtn,
     ].forEach((el) => {
       if (el) el.disabled = spinning;
     });
@@ -282,11 +316,16 @@
     wheelHubText.textContent = spinning ? 'Girando' : 'Girar';
   }
 
-  async function fetchAniListPage(genre, minScore, page) {
+  async function fetchAniListPage(genre, minScore, page, modoPozo) {
     const variables = { page };
     if (genre) variables.genres = [genre];
     if (minScore) {
       variables.minScore = Math.max(1, Math.round(parseFloat(minScore) * 10) - 1);
+    }
+    // Modo Pozo Olvidado: filtra entre 500 y 10.000 miembros en AniList
+    if (modoPozo) {
+      variables.popularityGreater = 500;
+      variables.popularityLesser = 10000;
     }
 
     const controller = new AbortController();
@@ -332,6 +371,8 @@
           imageUrl:
             (media.coverImage && (media.coverImage.extraLarge || media.coverImage.large)) || '',
           score: typeof media.averageScore === 'number' ? media.averageScore / 10 : null,
+          popularity: typeof media.popularity === 'number' ? media.popularity : null,
+          fromPozo: Boolean(modoPozo),
           episodes: media.episodes,
           status: media.status,
           year: media.seasonYear,
@@ -421,11 +462,13 @@
   }
 
   async function pickFromProvider(providerName, fetcher) {
-    const cacheKey = `${providerName}::${state.genre || 'all'}::${state.minScore || 'any'}`;
+    const cacheKey = `${providerName}::${state.genre || 'all'}::${state.minScore || 'any'}::${
+      state.modoPozo ? 'pozo' : 'normal'
+    }`;
     let pool = poolCache.get(cacheKey);
 
     if (!pool) {
-      const firstPage = await fetcher(state.genre, state.minScore, 1);
+      const firstPage = await fetcher(state.genre, state.minScore, 1, state.modoPozo);
       pool = {
         lastVisiblePage: firstPage.lastPage,
         pages: new Map([[1, firstPage.items]]),
@@ -446,7 +489,7 @@
 
       let items = pool.pages.get(page);
       if (!items) {
-        const res = await fetcher(state.genre, state.minScore, page);
+        const res = await fetcher(state.genre, state.minScore, page, state.modoPozo);
         items = res.items;
         pool.pages.set(page, items);
       }
@@ -489,6 +532,14 @@
           'No quedan animes sin ver con estos filtros. Prueba bajar la puntuación o reiniciar tu historial.'
         );
       }
+
+      // El modo Pozo Olvidado es exclusivo de AniList; no usar Kitsu como respaldo
+      if (state.modoPozo) {
+        throw new Error(
+          'No se pudo conectar con los servidores de anime en este momento. Verifica tu conexión e inténtalo de nuevo.'
+        );
+      }
+
       try {
         return await pickFromProvider('kitsu', fetchKitsuPage);
       } catch (fallbackErr) {
@@ -537,6 +588,17 @@
     animeSubtitles.classList.toggle('is-hidden', !subtitles);
 
     animeScore.textContent = anime.score ? `★ ${anime.score.toFixed(2)}` : '★ N/D';
+    if (pozoPopularityNote) {
+      if (anime.fromPozo && typeof anime.popularity === 'number') {
+        const vistos = formatearMiles(anime.popularity);
+        const siguiente = formatearMiles(anime.popularity + 1);
+        pozoPopularityNote.textContent = `Solo ${vistos} personas en el mundo han visto esto. Ahora tú eres la ${siguiente}.`;
+        pozoPopularityNote.classList.remove('is-hidden');
+      } else {
+        pozoPopularityNote.textContent = '';
+        pozoPopularityNote.classList.add('is-hidden');
+      }
+    }
     animeEpisodes.textContent = anime.episodes
       ? `${anime.episodes} episodios`
       : 'Episodios por confirmar';
@@ -958,9 +1020,10 @@
 
     const activeBtn = genreButtonsContainer.querySelector('.genre-btn.is-active');
     const genreLabel = activeBtn ? activeBtn.textContent : 'Todos';
-    loadingDetail.textContent = `Filtrando por ${genreLabel}${
-      state.minScore ? ` · puntuación +${state.minScore}` : ''
-    }`;
+    const partesFiltro = [genreLabel];
+    if (state.minScore) partesFiltro.push(`+${state.minScore}`);
+    if (state.modoPozo) partesFiltro.push('Pozo Olvidado');
+    loadingDetail.textContent = `Filtrando por ${partesFiltro.join(' · ')}`;
 
     try {
       // Calcula primero el anime elegido y luego anima la ruleta hasta su segmento ganador
@@ -1032,6 +1095,15 @@
     state.minScore = event.target.value;
   });
 
+  if (pozoToggleBtn) {
+    pozoToggleBtn.addEventListener('click', () => {
+      if (state.isSpinning) return;
+      state.modoPozo = !state.modoPozo;
+      saveModoPozo();
+      updatePozoUI();
+    });
+  }
+
   [headerSpinBtn, mainSpinBtn, wheelHubBtn, emptySpinBtn, retrySpinBtn, nextSpinBtn].forEach(
     (btn) => {
       btn.addEventListener('click', handleSpin);
@@ -1041,7 +1113,10 @@
   clearFiltersBtn.addEventListener('click', () => {
     state.genre = '';
     state.minScore = '';
+    state.modoPozo = false;
     minScoreSelect.value = '';
+    saveModoPozo();
+    updatePozoUI();
     genreButtonsContainer.querySelectorAll('.genre-btn').forEach((btn) => {
       btn.classList.toggle('is-active', btn.dataset.genre === '');
     });
@@ -1561,6 +1636,7 @@
     updateResetUI();
   });
 
+  updatePozoUI();
   renderWheel();
   renderWatchedHistory();
   showStage('idle');
