@@ -38,6 +38,7 @@ body {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  align-items: center;
   overflow-x: hidden;
   background-color: var(--bg-canvas);
   background-image: radial-gradient(
@@ -112,6 +113,7 @@ select {
 
 /* Topbar Glass */
 .topbar {
+  width: 100%;
   position: sticky;
   top: 0;
   z-index: 30;
@@ -170,11 +172,17 @@ select {
   position: relative;
   z-index: 10;
   flex: 1;
+  width: 100%;
   padding-top: 40px;
   padding-bottom: 56px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 44px;
+}
+
+.main-content > * {
+  width: 100%;
 }
 
 .hero-intro {
@@ -315,9 +323,99 @@ select {
 .select-input:focus-visible,
 .btn:focus-visible,
 .genre-btn:focus-visible,
+.pozo-toggle:focus-visible,
 .wheel-hub:focus-visible {
   outline: 2px solid var(--neon-cyan);
   outline-offset: 2px;
+}
+
+/* Toggle modo Pozo Olvidado */
+.pozo-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.pozo-toggle:hover:not(:disabled) {
+  border-color: rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.2);
+}
+
+.pozo-toggle.is-active {
+  background-color: rgba(0, 240, 255, 0.1);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.3);
+}
+
+.pozo-toggle:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.pozo-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pozo-toggle-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pozo-toggle-desc {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.pozo-toggle.is-active .pozo-toggle-desc {
+  color: var(--text-secondary);
+}
+
+.pozo-switch-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  transition: all 0.3s ease;
+}
+
+.pozo-toggle.is-active .pozo-switch-track {
+  background-color: rgba(0, 240, 255, 0.32);
+  border-color: var(--neon-cyan);
+}
+
+.pozo-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background-color: #cbd5e1;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+
+.pozo-toggle.is-active .pozo-switch-thumb {
+  transform: translateX(20px);
+  background-color: var(--neon-cyan);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.75);
 }
 
 /* Botones con micro-interacciones luminosas */
@@ -565,6 +663,9 @@ select {
 /* Result Stage */
 .result-stage {
   min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .state-box {
@@ -720,6 +821,10 @@ select {
     display: none;
     animation: none;
   }
+
+  .pozo-switch-thumb {
+    transition: none;
+  }
 }
 
 .anime-poster-col {
@@ -798,6 +903,19 @@ select {
   font-family: var(--font-mono);
   font-weight: 700;
   color: #fcd34d;
+}
+
+.pozo-popularity-note {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--neon-cyan);
+  background-color: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 10px;
+  padding: 7px 12px;
+  width: fit-content;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
 }
 
 .anime-title {
@@ -1000,6 +1118,7 @@ select {
 
 /* Footer */
 .site-footer {
+  width: 100%;
   position: relative;
   z-index: 10;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -1019,7 +1138,10 @@ select {
 /* Responsive Breakpoints */
 @media (max-width: 1024px) {
   .workspace-grid {
+    max-width: 600px;
+    margin: 0 auto;
     grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
   }
 
   .hero-intro {
@@ -1043,6 +1165,14 @@ select {
 
   .controls-panel {
     padding: 18px;
+  }
+
+  .genre-grid {
+    justify-content: center;
+  }
+
+  .filter-label {
+    text-align: center;
   }
 
   .btn-full {
