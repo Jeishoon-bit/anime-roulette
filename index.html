@@ -3,291 +3,441 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ruleta de Recomendaciones de Anime</title>
+    <title>AniRuleta — Ruleta Indie de Recomendaciones de Anime</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="favicon.svg" />
     <meta
       name="description"
-      content="Aplicación web interactiva en modo oscuro para descubrir tu próximo anime mediante una ruleta animada con enlaces directos a MyAnimeList."
+      content="Ruleta indie de recomendaciones de anime conectada en vivo con AniList. Filtra por género, descubre joyas ocultas en el Pozo Olvidado y guarda tu historial."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
-    <div class="bg-kanji-layer" aria-hidden="true">
-      <span class="anime-bg-kanji">ランダムアニメ</span>
-    </div>
-
     <header class="topbar">
       <div class="container topbar-inner">
-        <a href="#inicio" class="brand">Ani<span>Ruleta</span></a>
+        <a href="#ruleta" class="brand" data-page-link="ruleta">
+          <img src="favicon.svg" alt="" class="brand-logo" width="36" height="36" aria-hidden="true" />
+          <span class="brand-wordmark">Ani<span class="brand-accent">Ruleta</span></span>
+        </a>
 
-        <nav class="nav-links" aria-label="Navegación principal">
-          <a href="#inicio">Ruleta</a>
-          <a href="#filtros">Filtros</a>
-          <a href="#resultado">Resultado</a>
-          <a href="#historial">Historial (<span id="nav-watched-count">0</span>)</a>
+        <nav class="nav-links" aria-label="Páginas del sitio">
+          <a href="#ruleta" data-page-link="ruleta" class="is-active" aria-current="page">Ruleta</a>
+          <a href="#filtros" data-page-link="filtros">Filtros</a>
+          <a href="#historial" data-page-link="historial">
+            Historial (<span id="nav-watched-count">0</span>)
+          </a>
+          <a href="#bitacora" data-page-link="bitacora">Bitácora</a>
         </nav>
 
         <button type="button" id="header-spin-btn" class="btn btn-primary btn-sm">
           Girar ruleta
         </button>
       </div>
+
+      <nav class="mobile-page-tabs" aria-label="Páginas en móvil">
+        <button type="button" class="mobile-tab is-active" data-page-link="ruleta" aria-current="page">
+          Ruleta
+        </button>
+        <button type="button" class="mobile-tab" data-page-link="filtros">
+          Filtros
+        </button>
+        <button type="button" class="mobile-tab" data-page-link="historial">
+          Historial (<span id="mobile-watched-count">0</span>)
+        </button>
+        <button type="button" class="mobile-tab" data-page-link="bitacora">
+          Bitácora
+        </button>
+      </nav>
     </header>
 
-    <main id="inicio" class="container main-content">
-      <section class="hero-intro">
-        <h1>Ruleta de Recomendaciones de Anime</h1>
-        <p class="hero-subtitle">
-          Ajusta el género y la puntuación mínima, gira la ruleta y descubre tu próxima serie vinculada directamente a MyAnimeList.
-        </p>
-      </section>
+    <main class="container main-content">
+      <!-- PÁGINA 1: RULETA Y RESULTADO -->
+      <section id="page-ruleta" class="page-view" aria-labelledby="titulo-ruleta">
+        <div class="hero-intro">
+          <h1 id="titulo-ruleta">Ruleta de Recomendaciones de Anime</h1>
+          <p class="hero-subtitle">
+            Un espacio enfocado para descubrir tu próxima serie sin ruido visual. Ajusta tus reglas en Filtros o gira directo.
+          </p>
+        </div>
 
-      <section class="workspace-grid" aria-label="Configuración y resultado de la ruleta">
-        <aside id="filtros" class="panel controls-panel">
-          <div class="panel-header">
-            <h2 class="panel-title">Filtros de búsqueda</h2>
-            <span class="muted-counter">Excluidos: <strong id="excluded-count">0</strong></span>
-          </div>
-
-          <div class="filter-group">
-            <span class="filter-label">Género principal</span>
-            <div id="genre-buttons" class="genre-grid" role="group" aria-label="Seleccionar género">
-              <button type="button" class="genre-btn is-active" data-genre="">Todos</button>
-              <button type="button" class="genre-btn" data-genre="Action">Acción</button>
-              <button type="button" class="genre-btn" data-genre="Adventure">Aventura</button>
-              <button type="button" class="genre-btn" data-genre="Comedy">Comedia</button>
-              <button type="button" class="genre-btn" data-genre="Fantasy">Fantasía</button>
-              <button type="button" class="genre-btn" data-genre="Mystery">Misterio</button>
-              <button type="button" class="genre-btn" data-genre="Slice of Life">Slice of Life</button>
-              <button type="button" class="genre-btn" data-genre="Sci-Fi">Ciencia Ficción</button>
-              <button type="button" class="genre-btn" data-genre="Romance">Romance</button>
-            </div>
-          </div>
-
-          <div class="filter-group">
-            <label for="min-score-select" class="filter-label">Puntuación mínima</label>
-            <select id="min-score-select" class="select-input">
-              <option value="">Cualquier puntuación</option>
-              <option value="7">+7.0 Buena</option>
-              <option value="7.5" selected>+7.5 Muy buena</option>
-              <option value="8">+8.0 Excelente</option>
-              <option value="8.5">+8.5 Obra maestra</option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <span class="filter-label">Modo especial</span>
-            <button
-              type="button"
-              id="pozo-toggle-btn"
-              class="pozo-toggle"
-              role="switch"
-              aria-checked="false"
-            >
-              <span class="pozo-toggle-text">
-                <span class="pozo-toggle-title">Pozo Olvidado</span>
-                <span class="pozo-toggle-desc">Solo joyas con menos de 10.000 miembros en AniList</span>
-              </span>
-              <span class="pozo-switch-track" aria-hidden="true">
-                <span class="pozo-switch-thumb"></span>
-              </span>
-            </button>
-          </div>
-
-          <div class="wheel-stage">
-            <div class="wheel-pointer" aria-hidden="true">
-              <span class="pointer-dot"></span>
-              <svg
-                id="wheel-pointer-needle"
-                class="pointer-needle"
-                width="28"
-                height="22"
-                viewBox="0 0 28 22"
-              >
-                <defs>
-                  <linearGradient id="gachaPointerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stop-color="#00F0FF" />
-                    <stop offset="55%" stop-color="#FF2A85" />
-                    <stop offset="100%" stop-color="#FFE6F2" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M14 22L2 2H26L14 22Z"
-                  fill="url(#gachaPointerGrad)"
-                  stroke="#0B0E14"
-                  stroke-width="2"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </div>
-
-            <div class="wheel-frame">
-              <svg
-                id="roulette-svg"
-                class="roulette-wheel"
-                viewBox="0 0 320 320"
-                role="img"
-                aria-label="Ruleta interactiva de anime"
-              ></svg>
-
-              <button
-                type="button"
-                id="wheel-hub-btn"
-                class="wheel-hub"
-                aria-label="Girar ruleta"
-              >
-                <span class="wheel-hub-icon" aria-hidden="true">◎</span>
-                <span id="wheel-hub-text" class="wheel-hub-text">Girar</span>
-              </button>
-            </div>
-
-            <button type="button" id="main-spin-btn" class="btn btn-primary btn-full">
-              Girar / Recomendar Anime
-            </button>
-          </div>
-        </aside>
-
-        <section id="resultado" class="result-stage" aria-live="polite">
-          <div id="state-idle" class="panel state-box">
-            <div class="state-icon" aria-hidden="true">✦</div>
-            <h2>Listo para tu próxima serie</h2>
-            <p>
-              Selecciona un género y una puntuación mínima en el panel izquierdo y pulsa el botón para girar la ruleta.
-            </p>
-            <button type="button" id="empty-spin-btn" class="btn btn-primary">
-              Girar por primera vez
-            </button>
-          </div>
-
-          <div id="state-loading" class="panel state-box is-hidden">
-            <div class="spinner" aria-hidden="true"></div>
-            <h2>Consultando catálogo de anime…</h2>
-            <p id="loading-detail">Buscando títulos en el catálogo…</p>
-          </div>
-
-          <div id="state-error" class="panel state-box state-error is-hidden" role="alert">
-            <div class="state-icon state-icon-error" aria-hidden="true">!</div>
-            <h2>No se pudo completar la recomendación</h2>
-            <p id="error-message">Ocurrió un error al consultar la API.</p>
-            <div class="state-actions">
-              <button type="button" id="retry-spin-btn" class="btn btn-primary">
-                Reintentar giro
-              </button>
-              <button type="button" id="clear-filters-btn" class="btn btn-secondary">
-                Limpiar filtros
-              </button>
-            </div>
-          </div>
-
-          <article id="anime-card" class="panel anime-card is-hidden">
-            <div class="anime-poster-col">
-              <div class="anime-poster-frame">
-                <img
-                  id="anime-poster"
-                  src=""
-                  alt=""
-                  referrerpolicy="no-referrer"
-                />
-                <div id="poster-fallback" class="poster-fallback is-hidden">
-                  <span id="poster-fallback-title">Sin portada</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="anime-info-col">
-              <div class="anime-header">
-                <div class="anime-meta-line">
-                  <span id="anime-score" class="meta-score">★ 0.00</span>
-                  <span aria-hidden="true">·</span>
-                  <span id="anime-episodes">0 episodios</span>
-                  <span aria-hidden="true">·</span>
-                  <span id="anime-status">Finalizado</span>
-                  <span id="anime-year-sep" aria-hidden="true">·</span>
-                  <span id="anime-year"></span>
-                </div>
-
-                <p id="pozo-popularity-note" class="pozo-popularity-note is-hidden"></p>
-
-                <h2 id="anime-title" class="anime-title">Título del Anime</h2>
-                <p id="anime-subtitles" class="anime-subtitles"></p>
+        <div class="workspace-grid" aria-label="Ruleta y ficha de resultado">
+          <aside class="panel controls-panel">
+            <div class="wheel-stage">
+              <div class="wheel-pointer" aria-hidden="true">
+                <span class="pointer-dot"></span>
+                <svg
+                  id="wheel-pointer-needle"
+                  class="pointer-needle"
+                  width="28"
+                  height="22"
+                  viewBox="0 0 28 22"
+                >
+                  <path
+                    d="M14 22L2 2H26L14 22Z"
+                    fill="#E12D53"
+                    stroke="#1C1B18"
+                    stroke-width="2.5"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </div>
 
-              <div id="anime-genres" class="anime-genres" aria-label="Géneros"></div>
+              <div class="wheel-frame">
+                <svg
+                  id="roulette-svg"
+                  class="roulette-wheel"
+                  viewBox="0 0 320 320"
+                  role="img"
+                  aria-label="Ruleta interactiva de anime"
+                ></svg>
 
-              <div class="anime-synopsis-wrap">
-                <p id="anime-synopsis" class="anime-synopsis"></p>
                 <button
                   type="button"
-                  id="toggle-synopsis-btn"
-                  class="text-link-btn is-hidden"
+                  id="wheel-hub-btn"
+                  class="wheel-hub"
+                  aria-label="Girar ruleta"
                 >
-                  Leer sinopsis completa
+                  <span class="wheel-hub-icon" aria-hidden="true">◎</span>
+                  <span id="wheel-hub-text" class="wheel-hub-text">Girar</span>
                 </button>
               </div>
 
-              <div class="anime-actions">
-                <div class="anime-actions-left">
-                  <button type="button" id="mark-watched-btn" class="btn btn-secondary">
-                    Ya lo vi
-                  </button>
+              <button type="button" id="main-spin-btn" class="btn btn-primary btn-full">
+                Girar / Recomendar Anime
+              </button>
+            </div>
+
+            <div class="active-rules-box">
+              <div class="active-rules-head">
+                <span class="active-rules-title">Reglas activas</span>
+                <button
+                  type="button"
+                  id="goto-filters-btn"
+                  class="text-link-btn"
+                  data-page-link="filtros"
+                >
+                  Editar filtros →
+                </button>
+              </div>
+              <p id="active-rules-summary" class="active-rules-summary">
+                Todos los géneros · +7.5 Muy buena · 0 excluidos
+              </p>
+            </div>
+          </aside>
+
+          <section id="resultado" class="result-stage" aria-live="polite">
+            <div id="state-idle" class="panel state-box">
+              <div class="state-icon" aria-hidden="true">✦</div>
+              <h2>Listo para tu próxima serie</h2>
+              <p>
+                Gira la ruleta para revelar un anime al azar o pasa por la página de Filtros para elegir género, nota mínima y modo Pozo Olvidado.
+              </p>
+              <div class="state-actions">
+                <button type="button" id="empty-spin-btn" class="btn btn-primary">
+                  Girar por primera vez
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  data-page-link="filtros"
+                >
+                  Configurar filtros
+                </button>
+              </div>
+            </div>
+
+            <div id="state-loading" class="panel state-box is-hidden">
+              <div class="spinner" aria-hidden="true"></div>
+              <h2>Consultando catálogo de anime…</h2>
+              <p id="loading-detail">Buscando títulos en el catálogo…</p>
+            </div>
+
+            <div id="state-error" class="panel state-box state-error is-hidden" role="alert">
+              <div class="state-icon state-icon-error" aria-hidden="true">!</div>
+              <h2>No se pudo completar la recomendación</h2>
+              <p id="error-message">Ocurrió un error al consultar la API.</p>
+              <div class="state-actions">
+                <button type="button" id="retry-spin-btn" class="btn btn-primary">
+                  Reintentar giro
+                </button>
+                <button type="button" id="clear-filters-btn" class="btn btn-secondary">
+                  Limpiar filtros
+                </button>
+              </div>
+            </div>
+
+            <article id="anime-card" class="panel anime-card is-hidden">
+              <div class="anime-poster-col">
+                <div class="anime-poster-frame">
+                  <img
+                    id="anime-poster"
+                    src=""
+                    alt=""
+                    referrerpolicy="no-referrer"
+                  />
+                  <div id="poster-fallback" class="poster-fallback is-hidden">
+                    <span id="poster-fallback-title">Sin portada</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="anime-info-col">
+                <div class="anime-header">
+                  <div class="anime-meta-line">
+                    <span id="anime-score" class="meta-score">★ 0.00</span>
+                    <span aria-hidden="true">·</span>
+                    <span id="anime-episodes">0 episodios</span>
+                    <span aria-hidden="true">·</span>
+                    <span id="anime-status">Finalizado</span>
+                    <span id="anime-year-sep" aria-hidden="true">·</span>
+                    <span id="anime-year"></span>
+                  </div>
+
+                  <p id="pozo-popularity-note" class="pozo-popularity-note is-hidden"></p>
+
+                  <h2 id="anime-title" class="anime-title">Título del Anime</h2>
+                  <p id="anime-subtitles" class="anime-subtitles"></p>
+                </div>
+
+                <p id="anime-genres" class="anime-genres" aria-label="Géneros"></p>
+
+                <div class="anime-synopsis-wrap">
+                  <p id="anime-synopsis" class="anime-synopsis"></p>
                   <button
                     type="button"
-                    id="share-card-btn"
-                    class="btn btn-secondary"
-                    aria-label="Descargar o compartir tarjeta en imagen PNG"
+                    id="toggle-synopsis-btn"
+                    class="text-link-btn is-hidden"
                   >
-                    Compartir PNG
-                  </button>
-                  <button type="button" id="next-spin-btn" class="btn btn-primary">
-                    Otro anime
+                    Leer sinopsis completa
                   </button>
                 </div>
 
-                <a
-                  id="mal-link"
-                  href="#"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="external-link"
-                >
-                  Ver ficha en MyAnimeList ↗
-                </a>
+                <div class="anime-actions">
+                  <div class="anime-actions-left">
+                    <button type="button" id="mark-watched-btn" class="btn btn-secondary">
+                      Ya lo vi
+                    </button>
+                    <button
+                      type="button"
+                      id="share-card-btn"
+                      class="btn btn-secondary"
+                      aria-label="Descargar o compartir tarjeta en imagen PNG"
+                    >
+                      Compartir PNG
+                    </button>
+                    <button type="button" id="next-spin-btn" class="btn btn-primary">
+                      Otro anime
+                    </button>
+                  </div>
+
+                  <a
+                    id="mal-link"
+                    href="#"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="external-link"
+                  >
+                    Ver ficha en MyAnimeList ↗
+                  </a>
+                </div>
               </div>
-            </div>
-          </article>
-        </section>
+            </article>
+          </section>
+        </div>
       </section>
 
-      <section id="historial" class="history-section">
-        <div class="history-header">
-          <div>
-            <h2>Historial de animes vistos</h2>
-            <p id="history-summary" class="history-summary">
-              Todavía no marcaste ningún título como visto.
+      <!-- PÁGINA 2: FILTROS -->
+      <section id="page-filtros" class="page-view is-hidden" aria-labelledby="titulo-filtros">
+        <div class="narrow-page">
+          <div class="page-intro">
+            <h1 id="titulo-filtros">Filtros de búsqueda</h1>
+            <p class="hero-subtitle">
+              Combina género, puntuación mínima y el modo Pozo Olvidado. Tus ajustes se aplican directo al siguiente giro.
             </p>
           </div>
 
-          <div id="reset-controls" class="reset-controls is-hidden">
-            <button type="button" id="cancel-reset-btn" class="btn btn-secondary btn-sm is-hidden">
-              Cancelar
-            </button>
-            <button type="button" id="reset-history-btn" class="btn btn-secondary btn-sm">
-              Reiniciar historial
-            </button>
+          <div class="panel filters-page-card">
+            <div class="panel-header">
+              <h2 class="panel-title">Preferencias del catálogo</h2>
+              <span class="muted-counter">Excluidos por historial: <strong id="excluded-count">0</strong></span>
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">Género principal</span>
+              <div id="genre-buttons" class="genre-grid" role="group" aria-label="Seleccionar género">
+                <button type="button" class="genre-btn is-active" data-genre="">Todos</button>
+                <button type="button" class="genre-btn" data-genre="Action">Acción</button>
+                <button type="button" class="genre-btn" data-genre="Adventure">Aventura</button>
+                <button type="button" class="genre-btn" data-genre="Comedy">Comedia</button>
+                <button type="button" class="genre-btn" data-genre="Fantasy">Fantasía</button>
+                <button type="button" class="genre-btn" data-genre="Mystery">Misterio</button>
+                <button type="button" class="genre-btn" data-genre="Slice of Life">Slice of Life</button>
+                <button type="button" class="genre-btn" data-genre="Sci-Fi">Ciencia Ficción</button>
+                <button type="button" class="genre-btn" data-genre="Romance">Romance</button>
+              </div>
+            </div>
+
+            <div class="filter-group">
+              <label for="min-score-select" class="filter-label">Puntuación mínima</label>
+              <select id="min-score-select" class="select-input">
+                <option value="">Cualquier puntuación</option>
+                <option value="7">+7.0 Buena</option>
+                <option value="7.5" selected>+7.5 Muy buena</option>
+                <option value="8">+8.0 Excelente</option>
+                <option value="8.5">+8.5 Obra maestra</option>
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">Modo especial</span>
+              <button
+                type="button"
+                id="pozo-toggle-btn"
+                class="pozo-toggle"
+                role="switch"
+                aria-checked="false"
+              >
+                <span class="pozo-toggle-text">
+                  <span class="pozo-toggle-title">Pozo Olvidado</span>
+                  <span class="pozo-toggle-desc">Solo joyas con menos de 10.000 miembros en AniList</span>
+                </span>
+                <span class="pozo-switch-track" aria-hidden="true">
+                  <span class="pozo-switch-thumb"></span>
+                </span>
+              </button>
+            </div>
+
+            <div class="filters-page-actions">
+              <button type="button" id="reset-filters-page-btn" class="btn btn-secondary">
+                Restablecer filtros
+              </button>
+              <div class="filters-page-actions-right">
+                <button type="button" class="btn btn-secondary" data-page-link="ruleta">
+                  Volver a la ruleta
+                </button>
+                <button type="button" id="spin-from-filters-btn" class="btn btn-primary">
+                  Girar con estos filtros
+                </button>
+              </div>
+            </div>
           </div>
         </div>
+      </section>
 
-        <div id="watched-grid" class="watched-grid"></div>
+      <!-- PÁGINA 3: HISTORIAL -->
+      <section id="page-historial" class="page-view is-hidden" aria-labelledby="titulo-historial">
+        <div class="history-page-wrap">
+          <div class="history-header">
+            <div>
+              <h1 id="titulo-historial">Cuaderno de animes vistos</h1>
+              <p id="history-summary" class="history-summary">
+                Todavía no marcaste ningún título como visto.
+              </p>
+            </div>
+
+            <div id="reset-controls" class="reset-controls is-hidden">
+              <button type="button" id="cancel-reset-btn" class="btn btn-secondary btn-sm is-hidden">
+                Cancelar
+              </button>
+              <button type="button" id="reset-history-btn" class="btn btn-secondary btn-sm">
+                Reiniciar historial
+              </button>
+            </div>
+          </div>
+
+          <div id="history-empty-box" class="panel empty-history-box">
+            <p>
+              Cada vez que pulses «Ya lo vi» en una ficha, el anime se guardará aquí y quedará excluido de futuros giros.
+            </p>
+            <button type="button" class="btn btn-primary" data-page-link="ruleta">
+              Ir a la ruleta
+            </button>
+          </div>
+
+          <div id="watched-grid" class="watched-grid"></div>
+        </div>
+      </section>
+
+      <!-- PÁGINA 4: BITÁCORA INDIE WEB -->
+      <section id="page-bitacora" class="page-view is-hidden" aria-labelledby="titulo-bitacora">
+        <div class="narrow-page">
+          <div class="page-intro">
+            <h1 id="titulo-bitacora">Bitácora del rincón</h1>
+            <p class="hero-subtitle">
+              Notas sobre cómo funciona esta ruleta hecha a mano dentro del espíritu de la web independiente.
+            </p>
+          </div>
+
+          <div class="bitacora-grid">
+            <article class="panel bitacora-card">
+              <h2>01. Qué es AniRuleta</h2>
+              <p>
+                Una herramienta directa para cuando tienes ganas de ver anime y no quieres pasar media hora leyendo listas infinitas. Consulta el catálogo en vivo a través de AniList GraphQL y enlaza cada resultado directo a su ficha.
+              </p>
+            </article>
+
+            <article class="panel bitacora-card">
+              <h2>02. Modo Pozo Olvidado</h2>
+              <p>
+                Pensado para salir de los diez animes populares de siempre: filtra series en AniList con entre 500 y 10.000 miembros para rescatar joyas escondidas, OVAs raras y clásicos olvidados.
+              </p>
+            </article>
+
+            <article class="panel bitacora-card">
+              <h2>03. Privacidad y 100% SFW</h2>
+              <p>
+                Sin cuentas, sin anuncios y sin algoritmos de seguimiento. Tu historial «Ya lo vi» y el modo Pozo Olvidado viven únicamente en el almacenamiento local de tu navegador, con exclusión estricta de contenido adulto o ecchi.
+              </p>
+            </article>
+
+            <article class="panel bitacora-card">
+              <h2>04. Créditos y modificaciones</h2>
+              <p>
+                Si realizas cualquier modificación, cambio o publicas una página web usando estos archivos, debes incluir una sección visible o un enlace directo al sitio original de AniRuleta como crédito del proyecto.
+              </p>
+            </article>
+          </div>
+
+          <div class="stamps-tray">
+            <span class="stamps-label">Sellos 88×31 de este rincón:</span>
+            <div class="stamps-row">
+              <svg width="88" height="31" viewBox="0 0 88 31" shape-rendering="crispEdges" role="img" aria-label="Sello AniRuleta 100% SFW">
+                <rect width="88" height="31" fill="#1C1B18" />
+                <rect x="2" y="2" width="84" height="27" fill="#FFFDF8" />
+                <rect x="2" y="2" width="26" height="27" fill="#E12D53" />
+                <text x="15" y="19" fill="#FFFDF8" font-size="9" font-weight="700" font-family="monospace" text-anchor="middle">SFW</text>
+                <text x="57" y="19" fill="#1C1B18" font-size="9" font-weight="700" font-family="monospace" text-anchor="middle">ANIRULETA</text>
+              </svg>
+
+              <svg width="88" height="31" viewBox="0 0 88 31" shape-rendering="crispEdges" role="img" aria-label="Sello Small Web">
+                <rect width="88" height="31" fill="#1C1B18" />
+                <rect x="2" y="2" width="84" height="27" fill="#EFF6FF" />
+                <rect x="2" y="2" width="84" height="10" fill="#1D4ED8" />
+                <text x="44" y="10" fill="#FFFDF8" font-size="7" font-weight="700" font-family="monospace" text-anchor="middle">INDIE WEB</text>
+                <text x="44" y="24" fill="#1C1B18" font-size="9" font-weight="700" font-family="monospace" text-anchor="middle">SMALL WEB</text>
+              </svg>
+
+              <svg width="88" height="31" viewBox="0 0 88 31" shape-rendering="crispEdges" role="img" aria-label="Sello Sin Rastreo">
+                <rect width="88" height="31" fill="#1C1B18" />
+                <rect x="2" y="2" width="84" height="27" fill="#DCFCE7" />
+                <text x="44" y="14" fill="#15803D" font-size="8" font-weight="700" font-family="monospace" text-anchor="middle">SIN RASTREO</text>
+                <text x="44" y="25" fill="#1C1B18" font-size="7" font-weight="700" font-family="monospace" text-anchor="middle">SOLO LOCAL</text>
+              </svg>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 
     <footer class="site-footer">
       <div class="container footer-inner">
-        <span>Ruleta de Recomendaciones de Anime</span>
+        <span>AniRuleta · Ruleta Indie de Anime · 100% SFW</span>
         <span>Catálogo en vivo con enlaces directos a MyAnimeList</span>
       </div>
     </footer>
