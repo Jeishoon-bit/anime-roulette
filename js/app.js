@@ -1,74 +1,35 @@
 (() => {
-  const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
-  const KITSU_API_URL = 'https://kitsu.io/api/edge/anime';
+  const ANILIST_URL = 'https://graphql.anilist.co';
   const STORAGE_KEY = 'anime_roulette_watched_v2';
   const POZO_STORAGE_KEY = 'anime_roulette_pozo';
   const DURACION_GIRO_NORMAL_MS = 5000;
   const DURACION_GIRO_REDUCIDO_MS = 800;
   const VUELTAS_NORMALES_DEG = 2160; // 6 vueltas completas
   const VUELTAS_REDUCIDAS_DEG = 360; // 1 vuelta completa
-  const REQUEST_TIMEOUT_MS = 8000;
-  const TONOS_SAKURA = ['#f8c8d8', '#f4b8cc', '#fad6e3', '#f2afc5'];
+  const REQUEST_TIMEOUT_MS = 10000;
+  const ANILIST_PER_PAGE = 40;
+  const POZO_MIN_MEMBERS = 500;
+  const POZO_MAX_MEMBERS = 10000;
+  const TONOS_SAKURA = ['#F48FB1', '#F06292', '#F8BBD0', '#EC4899'];
 
   const WHEEL_SEGMENTS = [
-    { label: 'Acción', color: '#FF2A85', genre: 'Action', kitsuSlug: 'action' },
-    { label: 'Aventura', color: '#F59E0B', genre: 'Adventure', kitsuSlug: 'adventure' },
-    { label: 'Comedia', color: '#10B981', genre: 'Comedy', kitsuSlug: 'comedy' },
-    { label: 'Fantasía', color: '#8B5CF6', genre: 'Fantasy', kitsuSlug: 'fantasy' },
-    { label: 'Misterio', color: '#00D8E6', genre: 'Mystery', kitsuSlug: 'mystery' },
-    { label: 'Slice of Life', color: '#EC4899', genre: 'Slice of Life', kitsuSlug: 'slice-of-life' },
-    { label: 'Sci-Fi', color: '#6366F1', genre: 'Sci-Fi', kitsuSlug: 'science-fiction' },
-    { label: 'Romance', color: '#F472B6', genre: 'Romance', kitsuSlug: 'romance' },
-    { label: 'Sorpresa', color: '#FB7185', genre: '', kitsuSlug: '' },
+    { label: 'Acción', color: '#E12D53', genre: 'Action' },
+    { label: 'Aventura', color: '#B45309', genre: 'Adventure' },
+    { label: 'Comedia', color: '#15803D', genre: 'Comedy' },
+    { label: 'Fantasía', color: '#6D28D9', genre: 'Fantasy' },
+    { label: 'Misterio', color: '#0369A1', genre: 'Mystery' },
+    { label: 'Slice of Life', color: '#BE185D', genre: 'Slice of Life' },
+    { label: 'Sci-Fi', color: '#3730A3', genre: 'Sci-Fi' },
+    { label: 'Romance', color: '#9D174D', genre: 'Romance' },
+    { label: 'Sorpresa', color: '#C2410C', genre: '' },
   ];
 
   const EXPLICIT_GENRES = new Set(['hentai', 'ecchi', 'erotica']);
 
-  const ANILIST_QUERY = `
-    query ($page: Int, $genres: [String], $minScore: Int, $popularityGreater: Int, $popularityLesser: Int) {
-      Page(page: $page, perPage: 25) {
-        pageInfo {
-          lastPage
-          hasNextPage
-        }
-        media(
-          type: ANIME
-          isAdult: false
-          genre_not_in: ["Hentai", "Ecchi"]
-          sort: POPULARITY_DESC
-          genre_in: $genres
-          averageScore_greater: $minScore
-          popularity_greater: $popularityGreater
-          popularity_lesser: $popularityLesser
-        ) {
-          id
-          idMal
-          siteUrl
-          isAdult
-          popularity
-          title {
-            romaji
-            english
-            native
-          }
-          coverImage {
-            extraLarge
-            large
-          }
-          averageScore
-          episodes
-          status
-          seasonYear
-          genres
-          description(asHtml: false)
-        }
-      }
-    }
-  `;
-
   const poolCache = new Map();
 
   const state = {
+    currentPage: getPageFromHash(),
     genre: '',
     minScore: '7.5',
     modoPozo: loadModoPozo(),
@@ -90,6 +51,10 @@
   const genreButtonsContainer = document.getElementById('genre-buttons');
   const minScoreSelect = document.getElementById('min-score-select');
   const pozoToggleBtn = document.getElementById('pozo-toggle-btn');
+  const activeRulesSummary = document.getElementById('active-rules-summary');
+  const gotoFiltersBtn = document.getElementById('goto-filters-btn');
+  const resetFiltersPageBtn = document.getElementById('reset-filters-page-btn');
+  const spinFromFiltersBtn = document.getElementById('spin-from-filters-btn');
   const headerSpinBtn = document.getElementById('header-spin-btn');
   const mainSpinBtn = document.getElementById('main-spin-btn');
   const wheelHubBtn = document.getElementById('wheel-hub-btn');
@@ -125,12 +90,61 @@
   const malLink = document.getElementById('mal-link');
 
   const navWatchedCount = document.getElementById('nav-watched-count');
+  const mobileWatchedCount = document.getElementById('mobile-watched-count');
   const excludedCount = document.getElementById('excluded-count');
   const historySummary = document.getElementById('history-summary');
+  const historyEmptyBox = document.getElementById('history-empty-box');
   const resetControls = document.getElementById('reset-controls');
   const cancelResetBtn = document.getElementById('cancel-reset-btn');
   const resetHistoryBtn = document.getElementById('reset-history-btn');
   const watchedGrid = document.getElementById('watched-grid');
+
+  function getPageFromHash() {
+    const raw = window.location.hash.replace(/^#/, '').toLowerCase();
+    if (raw === 'filtros' || raw === 'historial' || raw === 'bitacora') {
+      return raw;
+    }
+    return 'ruleta';
+  }
+
+  function renderPageVisibility(page) {
+    state.currentPage = page;
+    ['ruleta', 'filtros', 'historial', 'bitacora'].forEach((id) => {
+      const section = document.getElementById(`page-${id}`);
+      if (section) {
+        section.classList.toggle('is-hidden', id !== page);
+      }
+    });
+
+    document.querySelectorAll('[data-page-link]').forEach((el) => {
+      if (el.classList.contains('mobile-tab') || el.closest('.nav-links')) {
+        const active = el.dataset.pageLink === page;
+        el.classList.toggle('is-active', active);
+        if (active) el.setAttribute('aria-current', 'page');
+        else el.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function navigateTo(page) {
+    renderPageVisibility(page);
+    if (window.location.hash !== `#${page}`) {
+      window.history.pushState(null, '', `#${page}`);
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  function updateActiveRulesSummary() {
+    if (!activeRulesSummary) return;
+    const activeBtn = genreButtonsContainer.querySelector('.genre-btn.is-active');
+    const genreLabel = activeBtn && activeBtn.textContent !== 'Todos' ? activeBtn.textContent : 'Todos los géneros';
+    const selectedOpt = minScoreSelect.options[minScoreSelect.selectedIndex];
+    const scoreLabel = selectedOpt ? selectedOpt.textContent : 'Cualquier puntuación';
+    const partes = [genreLabel, scoreLabel];
+    if (state.modoPozo) partes.push('Pozo Olvidado');
+    partes.push(`${state.watchedList.length} excluidos`);
+    activeRulesSummary.textContent = partes.join(' · ');
+  }
 
   function loadModoPozo() {
     try {
@@ -183,16 +197,11 @@
 
   function cleanHtmlSynopsis(raw) {
     if (!raw) {
-      return 'No hay sinopsis disponible para este título en la base de datos.';
+      return 'No hay sinopsis disponible para este título.';
     }
     return raw
       .replace(/<br\s*\/?>/gi, ' ')
-      .replace(/<\/?[^>]+(>|$)/g, '')
-      .replace(/&quot;/g, '"')
-      .replace(/&#039;|&apos;/g, "'")
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
+      .replace(/<[^>]+>/g, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
   }
@@ -224,18 +233,7 @@
   function renderWheel() {
     const segmentAngle = 360 / WHEEL_SEGMENTS.length;
     const parts = [
-      '<defs>',
-      '<radialGradient id="gachaInnerShadow" cx="50%" cy="50%" r="50%">',
-      '<stop offset="68%" stop-color="rgba(0,0,0,0)" />',
-      '<stop offset="100%" stop-color="rgba(0,0,0,0.55)" />',
-      '</radialGradient>',
-      '<linearGradient id="gachaRimStroke" x1="0%" y1="0%" x2="100%" y2="100%">',
-      '<stop offset="0%" stop-color="#00F0FF" stop-opacity="0.55" />',
-      '<stop offset="50%" stop-color="#FF2A85" stop-opacity="0.65" />',
-      '<stop offset="100%" stop-color="#00F0FF" stop-opacity="0.55" />',
-      '</linearGradient>',
-      '</defs>',
-      '<circle cx="160" cy="160" r="150" fill="#0A0D14" stroke="url(#gachaRimStroke)" stroke-width="2" />',
+      '<circle cx="160" cy="160" r="150" fill="#FFFDF8" stroke="#1C1B18" stroke-width="3" />',
     ];
 
     WHEEL_SEGMENTS.forEach((seg, index) => {
@@ -244,22 +242,22 @@
       const mid = start + segmentAngle / 2;
       const pos = polarToCartesian(160, 160, 101, mid);
       const isHighlighted = state.genre === '' || state.genre === seg.genre;
-      const fillOpacity = isHighlighted ? '0.92' : '0.28';
+      const fillOpacity = isHighlighted ? '0.96' : '0.34';
+      const labelColor = isHighlighted ? '#FFFFFF' : '#1C1B18';
 
       parts.push(
-        `<path class="wheel-segment" data-segment-index="${index}" d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#0B0E14" stroke-width="2.5" />`
+        `<path class="wheel-segment" data-segment-index="${index}" d="${describeArcWedge(160, 160, 146, 48, start, end)}" fill="${seg.color}" fill-opacity="${fillOpacity}" stroke="#1C1B18" stroke-width="2.2" />`
       );
       parts.push(
-        `<path d="${describeArcWedge(160, 160, 146, 138, start, end)}" fill="${seg.color}" fill-opacity="0.95" stroke="#0B0E14" stroke-width="1.5" />`
+        `<path d="${describeArcWedge(160, 160, 146, 138, start, end)}" fill="${seg.color}" fill-opacity="0.96" stroke="#1C1B18" stroke-width="1.5" />`
       );
       parts.push(
-        `<text x="${pos.x}" y="${pos.y}" fill="#FFFFFF" font-size="11.2" font-weight="700" letter-spacing="0.02em" font-family="Outfit, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`
+        `<text x="${pos.x}" y="${pos.y}" fill="${labelColor}" font-size="11.2" font-weight="700" letter-spacing="0.02em" font-family="Bricolage Grotesque, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`
       );
     });
 
-    parts.push('<circle cx="160" cy="160" r="146" fill="url(#gachaInnerShadow)" pointer-events="none" />');
     parts.push('<g id="winner-glow-layer" class="winner-glow-overlay" aria-hidden="true"></g>');
-    parts.push('<circle cx="160" cy="160" r="50" fill="#0F1422" stroke="#00F0FF" stroke-opacity="0.4" stroke-width="2" />');
+    parts.push('<circle cx="160" cy="160" r="50" fill="#FFFDF8" stroke="#1C1B18" stroke-width="2.5" />');
     rouletteSvg.innerHTML = parts.join('');
   }
 
@@ -305,6 +303,9 @@
       shareCardBtn,
       minScoreSelect,
       pozoToggleBtn,
+      gotoFiltersBtn,
+      spinFromFiltersBtn,
+      resetFiltersPageBtn,
     ].forEach((el) => {
       if (el) el.disabled = spinning;
     });
@@ -316,242 +317,264 @@
     wheelHubText.textContent = spinning ? 'Girando' : 'Girar';
   }
 
-  async function fetchAniListPage(genre, minScore, page, modoPozo) {
-    const variables = { page };
-    if (genre) variables.genres = [genre];
-    if (minScore) {
-      variables.minScore = Math.max(1, Math.round(parseFloat(minScore) * 10) - 1);
+  function esperar(ms) {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  }
+
+  const ANILIST_QUERY = `
+    query (
+      $page: Int,
+      $perPage: Int,
+      $genre: [String],
+      $scoreGreater: Int,
+      $popularityGreater: Int,
+      $popularityLesser: Int
+    ) {
+      Page(page: $page, perPage: $perPage) {
+        pageInfo {
+          lastPage
+          hasNextPage
+        }
+        media(
+          type: ANIME
+          isAdult: false
+          genre_not_in: ["Hentai", "Ecchi"]
+          genre_in: $genre
+          averageScore_greater: $scoreGreater
+          popularity_greater: $popularityGreater
+          popularity_lesser: $popularityLesser
+          sort: POPULARITY_DESC
+        ) {
+          id
+          idMal
+          siteUrl
+          title {
+            romaji
+            english
+            native
+          }
+          coverImage {
+            extraLarge
+            large
+          }
+          description(asHtml: false)
+          averageScore
+          popularity
+          episodes
+          status
+          seasonYear
+          genres
+          isAdult
+        }
+      }
     }
-    // Modo Pozo Olvidado: filtra entre 500 y 10.000 miembros en AniList
+  `;
+
+  function isSafeForWorkMedia(media) {
+    if (media.isAdult) return false;
+    const genres = Array.isArray(media.genres) ? media.genres : [];
+    return !genres.some((g) => EXPLICIT_GENRES.has(String(g || '').toLowerCase()));
+  }
+
+  function mapAniListAnime(media, modoPozo) {
+    const malId = typeof media.idMal === 'number' ? media.idMal : null;
+    const url = malId
+      ? `https://myanimelist.net/anime/${malId}`
+      : media.siteUrl || `https://anilist.co/anime/${media.id}`;
+    const titleObj = media.title || {};
+    const coverObj = media.coverImage || {};
+    const score =
+      typeof media.averageScore === 'number'
+        ? Number((media.averageScore / 10).toFixed(2))
+        : null;
+
+    return {
+      id: media.id,
+      malId,
+      url,
+      title: titleObj.romaji || titleObj.english || 'Anime sin título',
+      titleEnglish: titleObj.english || null,
+      titleJapanese: titleObj.native || null,
+      imageUrl: coverObj.extraLarge || coverObj.large || '',
+      score,
+      popularity: typeof media.popularity === 'number' ? media.popularity : null,
+      fromPozo: Boolean(modoPozo),
+      episodes: typeof media.episodes === 'number' ? media.episodes : null,
+      status: media.status || null,
+      year: typeof media.seasonYear === 'number' ? media.seasonYear : null,
+      genres: Array.isArray(media.genres) ? media.genres.slice(0, 6) : [],
+      synopsis: cleanHtmlSynopsis(media.description),
+    };
+  }
+
+  async function fetchAniListPage(genre, minScore, page, modoPozo, reintento = 0) {
+    const variables = {
+      page,
+      perPage: ANILIST_PER_PAGE,
+    };
+
+    if (genre) {
+      variables.genre = [genre];
+    }
+    if (minScore) {
+      const score100 = Math.round(Number(minScore) * 10);
+      if (Number.isFinite(score100) && score100 > 0) {
+        variables.scoreGreater = Math.max(0, score100 - 1);
+      }
+    }
     if (modoPozo) {
-      variables.popularityGreater = 500;
-      variables.popularityLesser = 10000;
+      variables.popularityGreater = POZO_MIN_MEMBERS;
+      variables.popularityLesser = POZO_MAX_MEMBERS;
     }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(ANILIST_GRAPHQL_URL, {
+      const response = await fetch(ANILIST_URL, {
         method: 'POST',
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({ query: ANILIST_QUERY, variables }),
+        body: JSON.stringify({
+          query: ANILIST_QUERY,
+          variables,
+        }),
       });
 
+      if (response.status === 429 && reintento < 2) {
+        clearTimeout(timeoutId);
+        await esperar(700 * (reintento + 1));
+        return fetchAniListPage(genre, minScore, page, modoPozo, reintento + 1);
+      }
+
       if (!response.ok) {
-        throw new Error(`Error HTTP ${response.status} al consultar AniList.`);
+        throw new Error(`HTTP_${response.status}`);
       }
 
       const json = await response.json();
-      if (json.errors && json.errors.length) {
-        throw new Error(json.errors[0].message || 'Error al consultar el catálogo.');
+      if (Array.isArray(json.errors) && json.errors.length > 0 && !(json.data && json.data.Page)) {
+        throw new Error((json.errors[0] && json.errors[0].message) || 'Error en AniList.');
       }
 
-      const pageData = json.data && json.data.Page ? json.data.Page : {};
-      const mediaList = (pageData.media || []).filter((media) => {
-        if (media.isAdult) return false;
-        if (!Array.isArray(media.genres)) return true;
-        return !media.genres.some((g) => EXPLICIT_GENRES.has(String(g).toLowerCase()));
-      });
-      const lastPage = pageData.pageInfo ? pageData.pageInfo.lastPage : 1;
+      const pageData = (json.data && json.data.Page) || {};
+      const rawList = Array.isArray(pageData.media) ? pageData.media : [];
+      const items = rawList
+        .filter(isSafeForWorkMedia)
+        .map((media) => mapAniListAnime(media, modoPozo));
 
-      const items = mediaList.map((media) => {
-        const malId = typeof media.idMal === 'number' ? media.idMal : null;
-        return {
-          id: malId ?? media.id,
-          malId,
-          url: malId ? `https://myanimelist.net/anime/${malId}` : media.siteUrl,
-          title: (media.title && (media.title.romaji || media.title.english)) || 'Anime sin título',
-          titleEnglish: media.title ? media.title.english : null,
-          titleJapanese: media.title ? media.title.native : null,
-          imageUrl:
-            (media.coverImage && (media.coverImage.extraLarge || media.coverImage.large)) || '',
-          score: typeof media.averageScore === 'number' ? media.averageScore / 10 : null,
-          popularity: typeof media.popularity === 'number' ? media.popularity : null,
-          fromPozo: Boolean(modoPozo),
-          episodes: media.episodes,
-          status: media.status,
-          year: media.seasonYear,
-          genres: Array.isArray(media.genres) ? media.genres.slice(0, 6) : [],
-          synopsis: cleanHtmlSynopsis(media.description),
-        };
-      });
+      const pageInfo = pageData.pageInfo || {};
+      const lastPage = Math.max(1, pageInfo.lastPage || 1);
+      const hasNextPage = Boolean(pageInfo.hasNextPage);
 
-      return {
-        items,
-        lastPage: Math.max(1, Math.min(lastPage || 1, 60)),
-      };
+      return { items, lastPage, hasNextPage };
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
-  async function fetchKitsuPage(genre, minScore, page) {
-    const limit = 20;
-    const offset = (page - 1) * limit;
-    const params = new URLSearchParams({
-      'page[limit]': String(limit),
-      'page[offset]': String(offset),
-      'filter[ageRating]': 'G,PG',
-      sort: '-userCount',
-    });
-
-    const seg = WHEEL_SEGMENTS.find((s) => s.genre === genre);
-    if (seg && seg.kitsuSlug) {
-      params.set('filter[categories]', seg.kitsuSlug);
-    }
-    if (minScore) {
-      const minRating = Math.round(parseFloat(minScore) * 10);
-      params.set('filter[averageRating]', `${minRating}..100`);
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(`${KITSU_API_URL}?${params.toString()}`, {
-        signal: controller.signal,
-        headers: { Accept: 'application/vnd.api+json' },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error HTTP ${response.status} al consultar Kitsu.`);
-      }
-
-      const json = await response.json();
-      const totalCount = (json.meta && json.meta.count) || 20;
-      const lastPage = Math.max(1, Math.min(Math.ceil(totalCount / limit), 12));
-
-      const safeRecords = (json.data || []).filter((rec) => {
-        const attr = rec.attributes || {};
-        return !attr.nsfw && attr.ageRating !== 'R18' && attr.ageRating !== 'R';
-      });
-
-      const items = safeRecords.map((rec) => {
-        const attr = rec.attributes || {};
-        const numericRating = attr.averageRating ? parseFloat(attr.averageRating) / 10 : null;
-        const year = attr.startDate ? parseInt(attr.startDate.slice(0, 4), 10) : null;
-        return {
-          id: Number(rec.id) + 1000000,
-          malId: null,
-          url: `https://kitsu.io/anime/${attr.slug}`,
-          title: attr.canonicalTitle || 'Anime sin título',
-          titleEnglish: attr.titles ? attr.titles.en : null,
-          titleJapanese: attr.titles ? attr.titles.ja_jp : null,
-          imageUrl:
-            (attr.posterImage &&
-              (attr.posterImage.large || attr.posterImage.original || attr.posterImage.medium)) ||
-            '',
-          score: numericRating && !Number.isNaN(numericRating) ? numericRating : null,
-          episodes: attr.episodeCount ?? null,
-          status: attr.status || null,
-          year: year && !Number.isNaN(year) ? year : null,
-          genres: seg && seg.genre ? [seg.label] : [],
-          synopsis: cleanHtmlSynopsis(attr.synopsis),
-        };
-      });
-
-      return { items, lastPage };
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  async function pickFromProvider(providerName, fetcher) {
-    const cacheKey = `${providerName}::${state.genre || 'all'}::${state.minScore || 'any'}::${
-      state.modoPozo ? 'pozo' : 'normal'
-    }`;
-    let pool = poolCache.get(cacheKey);
-
-    if (!pool) {
-      const firstPage = await fetcher(state.genre, state.minScore, 1, state.modoPozo);
-      pool = {
-        lastVisiblePage: firstPage.lastPage,
-        pages: new Map([[1, firstPage.items]]),
-      };
-      poolCache.set(cacheKey, pool);
-    }
-
-    const watchedIds = getWatchedIdsSet();
-    const maxAttempts = Math.min(4, pool.lastVisiblePage);
-    const triedPages = new Set();
-
-    for (let i = 0; i < maxAttempts; i++) {
-      let page = Math.floor(Math.random() * pool.lastVisiblePage) + 1;
-      while (triedPages.has(page) && triedPages.size < pool.lastVisiblePage) {
-        page = (page % pool.lastVisiblePage) + 1;
-      }
-      triedPages.add(page);
-
-      let items = pool.pages.get(page);
-      if (!items) {
-        const res = await fetcher(state.genre, state.minScore, page, state.modoPozo);
-        items = res.items;
-        pool.pages.set(page, items);
-      }
-
-      const eligible = items.filter(
-        (item) =>
-          !watchedIds.has(item.id) &&
-          (items.length <= 1 || item.id !== state.lastShownId)
-      );
-
-      if (eligible.length > 0) {
-        return eligible[Math.floor(Math.random() * eligible.length)];
-      }
-    }
-
-    const fallbackPool = [];
-    pool.pages.forEach((items) => {
-      items.forEach((item) => {
-        if (!watchedIds.has(item.id)) {
-          fallbackPool.push(item);
-        }
-      });
-    });
-
-    if (fallbackPool.length > 0) {
-      const nonRepeat = fallbackPool.filter((item) => item.id !== state.lastShownId);
-      const source = nonRepeat.length > 0 ? nonRepeat : fallbackPool;
-      return source[Math.floor(Math.random() * source.length)];
-    }
-
-    throw new Error('NO_UNWATCHED_MATCHES');
+  function filtrarElegibles(items, watchedIds, lastShownId) {
+    return items.filter(
+      (item) =>
+        !watchedIds.has(item.id) &&
+        (items.length <= 1 || item.id !== lastShownId)
+    );
   }
 
   async function pickRandomAnime() {
+    const cacheKey = `anilist::${state.genre || 'all'}::${state.minScore || 'any'}::${
+      state.modoPozo ? 'pozo' : 'normal'
+    }`;
+
     try {
-      return await pickFromProvider('anilist', fetchAniListPage);
-    } catch (primaryErr) {
-      if (primaryErr && primaryErr.message === 'NO_UNWATCHED_MATCHES') {
+      let pool = poolCache.get(cacheKey);
+      if (!pool) {
+        const first = await fetchAniListPage(
+          state.genre,
+          state.minScore,
+          1,
+          state.modoPozo
+        );
+        const initialMax = first.hasNextPage ? Math.min(first.lastPage, 20) : 1;
+        pool = {
+          maxPage: initialMax,
+          pages: new Map([[1, first.items]]),
+        };
+        poolCache.set(cacheKey, pool);
+      }
+
+      const watchedIds = getWatchedIdsSet();
+      const maxAttempts = Math.min(5, Math.max(1, pool.maxPage));
+      const triedPages = new Set();
+
+      for (let i = 0; i < maxAttempts; i++) {
+        const upper = Math.max(1, pool.maxPage);
+        let page = 1 + Math.floor(Math.random() * upper);
+        while (triedPages.has(page) && triedPages.size < upper) {
+          page = 1 + (page % upper);
+        }
+        triedPages.add(page);
+
+        let items = pool.pages.get(page);
+        if (!items) {
+          const res = await fetchAniListPage(
+            state.genre,
+            state.minScore,
+            page,
+            state.modoPozo
+          );
+          items = res.items;
+          pool.pages.set(page, items);
+
+          if (items.length === 0 && page > 1) {
+            pool.maxPage = Math.min(pool.maxPage, page - 1);
+            continue;
+          }
+          if (!res.hasNextPage) {
+            pool.maxPage = Math.min(pool.maxPage, page);
+          }
+        }
+
+        const eligible = filtrarElegibles(items, watchedIds, state.lastShownId);
+        if (eligible.length > 0) {
+          return eligible[Math.floor(Math.random() * eligible.length)];
+        }
+      }
+
+      const fallbackPool = [];
+      pool.pages.forEach((items) => {
+        fallbackPool.push(...filtrarElegibles(items, watchedIds, null));
+      });
+
+      if (fallbackPool.length > 0) {
+        const nonRepeat = fallbackPool.filter((item) => item.id !== state.lastShownId);
+        const source = nonRepeat.length > 0 ? nonRepeat : fallbackPool;
+        return source[Math.floor(Math.random() * source.length)];
+      }
+
+      throw new Error('NO_UNWATCHED_MATCHES');
+    } catch (err) {
+      if (err && err.message === 'NO_UNWATCHED_MATCHES') {
         throw new Error(
           'No quedan animes sin ver con estos filtros. Prueba bajar la puntuación o reiniciar tu historial.'
         );
       }
-
-      // El modo Pozo Olvidado es exclusivo de AniList; no usar Kitsu como respaldo
-      if (state.modoPozo) {
+      if (err && typeof err.message === 'string' && err.message.startsWith('HTTP_')) {
+        const code = err.message.replace('HTTP_', '');
+        throw new Error(`Error HTTP ${code} al consultar AniList.`);
+      }
+      if (err && err.name === 'AbortError') {
         throw new Error(
-          'No se pudo conectar con los servidores de anime en este momento. Verifica tu conexión e inténtalo de nuevo.'
+          'La consulta a AniList tardó demasiado tiempo en responder. Inténtalo de nuevo.'
         );
       }
-
-      try {
-        return await pickFromProvider('kitsu', fetchKitsuPage);
-      } catch (fallbackErr) {
-        if (fallbackErr && fallbackErr.message === 'NO_UNWATCHED_MATCHES') {
-          throw new Error(
-            'No quedan animes sin ver con estos filtros. Prueba bajar la puntuación o reiniciar tu historial.'
-          );
-        }
-        throw new Error(
-          'No se pudo conectar con los servidores de anime en este momento. Verifica tu conexión e inténtalo de nuevo.'
-        );
-      }
+      throw new Error(
+        'No se pudo conectar con AniList en este momento. Verifica tu conexión e inténtalo de nuevo.'
+      );
     }
   }
 
@@ -623,13 +646,7 @@
       posterFallback.classList.remove('is-hidden');
     }
 
-    animeGenres.innerHTML = '';
-    (anime.genres || []).forEach((genre) => {
-      const span = document.createElement('span');
-      span.className = 'genre-tag';
-      span.textContent = genre;
-      animeGenres.appendChild(span);
-    });
+    animeGenres.textContent = (anime.genres || []).join(' / ');
 
     animeSynopsis.dataset.fullText = anime.synopsis;
     renderSynopsis(anime.synopsis);
@@ -662,15 +679,19 @@
   function renderWatchedHistory() {
     const count = state.watchedList.length;
     navWatchedCount.textContent = String(count);
+    if (mobileWatchedCount) mobileWatchedCount.textContent = String(count);
     excludedCount.textContent = String(count);
+    updateActiveRulesSummary();
 
     if (count === 0) {
       historySummary.textContent = 'Todavía no marcaste ningún título como visto.';
+      if (historyEmptyBox) historyEmptyBox.classList.remove('is-hidden');
       resetControls.classList.add('is-hidden');
       watchedGrid.innerHTML = '';
       return;
     }
 
+    if (historyEmptyBox) historyEmptyBox.classList.add('is-hidden');
     historySummary.textContent = `${count} ${
       count === 1 ? 'título guardado' : 'títulos guardados'
     } en tu navegador para no repetir recomendaciones.`;
@@ -936,9 +957,9 @@
     const wedgePath = describeArcWedge(160, 160, 146, 48, start, end);
 
     glowLayer.innerHTML = [
-      `<path d="${wedgePath}" fill="none" stroke="rgba(255, 215, 130, 0.45)" stroke-width="7" stroke-linejoin="round" />`,
-      `<path d="${wedgePath}" fill="#FFD782" fill-opacity="0.28" stroke="#FFE699" stroke-width="2.75" stroke-linejoin="round" />`,
-      `<text x="${pos.x}" y="${pos.y}" fill="#FFFFFF" font-size="11" font-weight="700" font-family="Outfit, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`,
+      `<path d="${wedgePath}" fill="none" stroke="#F59E0B" stroke-width="7" stroke-linejoin="round" />`,
+      `<path d="${wedgePath}" fill="#FDE68A" fill-opacity="0.45" stroke="#1C1B18" stroke-width="2.5" stroke-linejoin="round" />`,
+      `<text x="${pos.x}" y="${pos.y}" fill="#1C1B18" font-size="11" font-weight="800" font-family="Bricolage Grotesque, sans-serif" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid + 90}, ${pos.x}, ${pos.y})">${seg.label}</text>`,
     ].join('');
   }
 
@@ -1010,6 +1031,10 @@
 
   async function handleSpin() {
     if (state.isSpinning) return;
+
+    if (state.currentPage !== 'ruleta') {
+      navigateTo('ruleta');
+    }
 
     limpiarPetalos();
     cancelarSecuenciaRevelacion();
@@ -1089,10 +1114,12 @@
     btn.classList.add('is-active');
     state.genre = btn.dataset.genre || '';
     renderWheel();
+    updateActiveRulesSummary();
   });
 
   minScoreSelect.addEventListener('change', (event) => {
     state.minScore = event.target.value;
+    updateActiveRulesSummary();
   });
 
   if (pozoToggleBtn) {
@@ -1101,16 +1128,17 @@
       state.modoPozo = !state.modoPozo;
       saveModoPozo();
       updatePozoUI();
+      updateActiveRulesSummary();
     });
   }
 
-  [headerSpinBtn, mainSpinBtn, wheelHubBtn, emptySpinBtn, retrySpinBtn, nextSpinBtn].forEach(
+  [headerSpinBtn, mainSpinBtn, wheelHubBtn, emptySpinBtn, retrySpinBtn, nextSpinBtn, spinFromFiltersBtn].forEach(
     (btn) => {
-      btn.addEventListener('click', handleSpin);
+      if (btn) btn.addEventListener('click', handleSpin);
     }
   );
 
-  clearFiltersBtn.addEventListener('click', () => {
+  function resetAllFilters() {
     state.genre = '';
     state.minScore = '';
     state.modoPozo = false;
@@ -1121,7 +1149,32 @@
       btn.classList.toggle('is-active', btn.dataset.genre === '');
     });
     renderWheel();
+    updateActiveRulesSummary();
+  }
+
+  clearFiltersBtn.addEventListener('click', () => {
+    resetAllFilters();
     showStage('idle');
+  });
+
+  if (resetFiltersPageBtn) {
+    resetFiltersPageBtn.addEventListener('click', () => {
+      resetAllFilters();
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-page-link]');
+    if (!link) return;
+    const targetPage = link.dataset.pageLink;
+    if (targetPage === 'ruleta' || targetPage === 'filtros' || targetPage === 'historial' || targetPage === 'bitacora') {
+      event.preventDefault();
+      navigateTo(targetPage);
+    }
+  });
+
+  window.addEventListener('hashchange', () => {
+    renderPageVisibility(getPageFromHash());
   });
 
   animePoster.addEventListener('error', () => {
@@ -1636,7 +1689,9 @@
     updateResetUI();
   });
 
+  renderPageVisibility(state.currentPage);
   updatePozoUI();
+  updateActiveRulesSummary();
   renderWheel();
   renderWatchedHistory();
   showStage('idle');
